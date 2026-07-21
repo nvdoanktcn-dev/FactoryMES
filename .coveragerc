@@ -1,0 +1,29 @@
+[run]
+branch = True
+source =
+    src
+omit =
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    */migrations/*
+    */site-packages/*
+    src/database/session.py
+
+[report]
+show_missing = True
+skip_covered = False
+precision = 2
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    @abstractmethod
+    if TYPE_CHECKING:
+
+[html]
+directory = htmlcov
+
+[xml]
+output = coverage.xml

@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+backups/
+reports/
+
+# Build
+build/
+dist/
+*.spec
+
+# IDE
+.vscode/
+.vs/
+.idea/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Environment
+.env
+.env.*
+
+# Runtime database
+database/
+data/FactoryMES.db
+
+# SQLite runtime files
+*.db-wal
+*.db-shm
