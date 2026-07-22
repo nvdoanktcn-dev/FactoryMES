@@ -23,9 +23,7 @@ from .production_log import ProductionLog
 from .routing_snapshot import RoutingSnapshot
 from .production_batch import ProductionBatch
 from .import_detail import ImportDetail
-from src.models.employee import Employee
-from src.models.routing import Routing
-from src.models.work_order import WorkOrder
+
 from src.models.production_order import ProductionOrder
 from src.models.production_assignment import (
     ProductionAssignment,
@@ -67,10 +65,11 @@ __all__ = [
     "RoutingSnapshot",
     "ProductionBatch",
     "ImportDetail",
-    "Employee",
-    "Routing",
-    "WorkOrder",
     "ProductionOrder",
     "ProductionAssignment",
     "ProductionAssignmentHistory",
+    "ProductionExecution",
+    "ProductionDowntime",
+    "ProductionNG",
+
 ]
