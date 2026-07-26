@@ -48,6 +48,69 @@ class ProductionNGController:
                 self.service
                 .get_all_records()
             )
+            session = self.service.require_session()
+            execution_ids = {
+                record.execution_id
+                for record in records
+                if record.execution_id is not None
+            }
+            executions_by_id = {}
+
+            if execution_ids:
+                executions_by_id = {
+                    execution.id: execution
+                    for execution in (
+                        session.query(ProductionExecution)
+                        .filter(
+                            ProductionExecution.id.in_(
+                                execution_ids
+                            )
+                        )
+                        .all()
+                    )
+                }
+
+            assignment_ids = {
+                execution.assignment_id
+                for execution in executions_by_id.values()
+                if execution.assignment_id is not None
+            }
+            assignments_by_id = {}
+
+            if assignment_ids:
+                assignments_by_id = {
+                    assignment.id: assignment
+                    for assignment in (
+                        session.query(ProductionAssignment)
+                        .filter(
+                            ProductionAssignment.id.in_(
+                                assignment_ids
+                            )
+                        )
+                        .all()
+                    )
+                }
+
+            production_order_ids = {
+                assignment.production_order_id
+                for assignment in assignments_by_id.values()
+                if assignment.production_order_id is not None
+            }
+            production_orders_by_id = {}
+
+            if production_order_ids:
+                production_orders_by_id = {
+                    order.id: order
+                    for order in (
+                        session.query(ProductionOrder)
+                        .filter(
+                            ProductionOrder.id.in_(
+                                production_order_ids
+                            )
+                        )
+                        .all()
+                    )
+                }
 
             keyword = (
                 self.page.search_box
@@ -76,39 +139,21 @@ class ProductionNGController:
             rows = []
 
             for record in records:
-                execution = (
-                    self.service.session
-                    .query(ProductionExecution)
-                    .filter(
-                        ProductionExecution.id
-                        == record.execution_id
-                    )
-                    .first()
+                execution = executions_by_id.get(
+                    record.execution_id
                 )
 
                 assignment = None
                 production_order = None
 
                 if execution is not None:
-                    assignment = (
-                        self.service.session
-                        .query(ProductionAssignment)
-                        .filter(
-                            ProductionAssignment.id
-                            == execution.assignment_id
-                        )
-                        .first()
+                    assignment = assignments_by_id.get(
+                        execution.assignment_id
                     )
 
                 if assignment is not None:
-                    production_order = (
-                        self.service.session
-                        .query(ProductionOrder)
-                        .filter(
-                            ProductionOrder.id
-                            == assignment.production_order_id
-                        )
-                        .first()
+                    production_order = production_orders_by_id.get(
+                        assignment.production_order_id
                     )
 
                 searchable = " ".join(
@@ -227,6 +272,7 @@ class ProductionNGController:
             return rows
 
         except Exception as error:
+            self._rollback_safely()
             self.page.show_error(
                 error
             )
@@ -237,18 +283,17 @@ class ProductionNGController:
     # ==========================================================
 
     def add_record(self):
-        dialog = ProductionNGDialog(
-            parent=self.page,
-            mode=ProductionNGDialog.MODE_ADD,
-            session=self.service.session,
-        )
-
-        if dialog.exec() != QDialog.Accepted:
-            return None
-
-        data = dialog.get_data()
-
         try:
+            dialog = ProductionNGDialog(
+                parent=self.page,
+                mode=ProductionNGDialog.MODE_ADD,
+                session=self.service.require_session(),
+            )
+
+            if dialog.exec() != QDialog.Accepted:
+                return None
+
+            data = dialog.get_data()
             record = self.service.record_ng(
                 execution_id=data["execution_id"],
                 ng_type=data["ng_type"],
@@ -259,7 +304,7 @@ class ProductionNGController:
                 remark=data["remark"],
             )
 
-            self.service.commit()
+            self.service.commit_changes()
             self.load_records()
 
             QMessageBox.information(
@@ -278,7 +323,7 @@ class ProductionNGController:
             return record
 
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(
                 error
             )
@@ -315,19 +360,18 @@ class ProductionNGController:
             )
             return None
 
-        dialog = ProductionNGDialog(
-            parent=self.page,
-            mode=ProductionNGDialog.MODE_EDIT,
-            ng_record=record,
-            session=self.service.session,
-        )
-
-        if dialog.exec() != QDialog.Accepted:
-            return None
-
-        data = dialog.get_data()
-
         try:
+            dialog = ProductionNGDialog(
+                parent=self.page,
+                mode=ProductionNGDialog.MODE_EDIT,
+                ng_record=record,
+                session=self.service.require_session(),
+            )
+
+            if dialog.exec() != QDialog.Accepted:
+                return None
+
+            data = dialog.get_data()
             updated = self.service.update_ng(
                 record.id,
                 ng_type=data["ng_type"],
@@ -338,7 +382,7 @@ class ProductionNGController:
                 remark=data["remark"],
             )
 
-            self.service.commit()
+            self.service.commit_changes()
             self.load_records()
 
             QMessageBox.information(
@@ -354,7 +398,7 @@ class ProductionNGController:
             return updated
 
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(
                 error
             )
@@ -417,13 +461,13 @@ class ProductionNGController:
                 )
             )
 
-            self.service.commit()
+            self.service.commit_changes()
             self.load_records()
 
             return result
 
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(
                 error
             )
@@ -438,3 +482,9 @@ class ProductionNGController:
 
     def close(self):
         self.service.close()
+
+    def _rollback_safely(self):
+        try:
+            self.service.rollback_changes()
+        except Exception:
+            pass

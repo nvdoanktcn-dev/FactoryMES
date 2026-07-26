@@ -60,6 +60,9 @@ class ProductionNGDialog(QDialog):
 
         self.ng_record = ng_record
         self.session = session
+        self._executions_by_id = {}
+        self._assignments_by_id = {}
+        self._production_orders_by_id = {}
 
         if self.mode not in {
             self.MODE_ADD,
@@ -326,6 +329,50 @@ class ProductionNGDialog(QDialog):
             .all()
         )
 
+        self._executions_by_id = {
+            execution.id: execution
+            for execution in executions
+        }
+        assignment_ids = {
+            execution.assignment_id
+            for execution in executions
+            if execution.assignment_id is not None
+        }
+        if assignment_ids:
+            self._assignments_by_id = {
+                assignment.id: assignment
+                for assignment in (
+                    self.session
+                    .query(ProductionAssignment)
+                    .filter(
+                        ProductionAssignment.id.in_(
+                            assignment_ids
+                        )
+                    )
+                    .all()
+                )
+            }
+
+        production_order_ids = {
+            assignment.production_order_id
+            for assignment in self._assignments_by_id.values()
+            if assignment.production_order_id is not None
+        }
+        if production_order_ids:
+            self._production_orders_by_id = {
+                order.id: order
+                for order in (
+                    self.session
+                    .query(ProductionOrder)
+                    .filter(
+                        ProductionOrder.id.in_(
+                            production_order_ids
+                        )
+                    )
+                    .all()
+                )
+            }
+
         self.execution_combo.clear()
 
         for execution in executions:
@@ -368,6 +415,8 @@ class ProductionNGDialog(QDialog):
                     f"{self.ng_record.execution_id}"
                 )
             )
+
+        self._executions_by_id[execution.id] = execution
 
         assignment = self._get_assignment(
             execution.assignment_id
@@ -537,14 +586,8 @@ class ProductionNGDialog(QDialog):
             )
             return
 
-        execution = (
-            self.session
-            .query(ProductionExecution)
-            .filter(
-                ProductionExecution.id
-                == int(execution_id)
-            )
-            .first()
+        execution = self._executions_by_id.get(
+            int(execution_id)
         )
 
         if execution is None:
@@ -570,6 +613,19 @@ class ProductionNGDialog(QDialog):
                 production_order,
             )
         )
+        self.recorded_at_edit.setMinimumDateTime(
+            self._to_qdatetime(
+                execution.start_time
+            )
+        )
+        if execution.end_time is not None:
+            self.recorded_at_edit.setMaximumDateTime(
+                self._to_qdatetime(
+                    execution.end_time
+                )
+            )
+        else:
+            self.recorded_at_edit.clearMaximumDateTime()
 
         if (
             self.mode == self.MODE_ADD
@@ -588,15 +644,25 @@ class ProductionNGDialog(QDialog):
         if assignment_id is None:
             return None
 
-        return (
-            self.session
-            .query(ProductionAssignment)
-            .filter(
-                ProductionAssignment.id
-                == int(assignment_id)
-            )
-            .first()
+        normalized_id = int(assignment_id)
+        assignment = self._assignments_by_id.get(
+            normalized_id
         )
+        if assignment is None:
+            assignment = (
+                self.session
+                .query(ProductionAssignment)
+                .filter(
+                    ProductionAssignment.id
+                    == normalized_id
+                )
+                .first()
+            )
+            if assignment is not None:
+                self._assignments_by_id[
+                    assignment.id
+                ] = assignment
+        return assignment
 
     def _get_production_order(
         self,
@@ -605,15 +671,27 @@ class ProductionNGDialog(QDialog):
         if production_order_id is None:
             return None
 
-        return (
-            self.session
-            .query(ProductionOrder)
-            .filter(
-                ProductionOrder.id
-                == int(production_order_id)
+        normalized_id = int(production_order_id)
+        production_order = (
+            self._production_orders_by_id.get(
+                normalized_id
             )
-            .first()
         )
+        if production_order is None:
+            production_order = (
+                self.session
+                .query(ProductionOrder)
+                .filter(
+                    ProductionOrder.id
+                    == normalized_id
+                )
+                .first()
+            )
+            if production_order is not None:
+                self._production_orders_by_id[
+                    production_order.id
+                ] = production_order
+        return production_order
 
     @staticmethod
     def _execution_display(

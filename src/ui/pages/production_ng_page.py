@@ -418,6 +418,9 @@ class ProductionNGPage(QWidget):
         self.btn_refresh.clicked.connect(
             self.controller.refresh
         )
+        self.table.itemSelectionChanged.connect(
+            self._update_action_state
+        )
 
         self.table.doubleClicked.connect(
             self.controller.edit_selected
@@ -461,6 +464,8 @@ class ProductionNGPage(QWidget):
             button.setMinimumHeight(
                 32
             )
+
+        self._update_action_state()
 
     # ==========================================================
     # Data rendering
@@ -583,6 +588,7 @@ class ProductionNGPage(QWidget):
                 )
 
         self.table.resizeRowsToContents()
+        self._update_action_state()
 
     def selected_record(self):
         selected_rows = (
@@ -696,6 +702,21 @@ class ProductionNGPage(QWidget):
                 message
                 or ""
             )
+        )
+
+    def _update_action_state(self):
+        record = self.selected_record()
+        status = (
+            str(record.status or "").strip().upper()
+            if record is not None
+            else ""
+        )
+
+        self.btn_edit.setEnabled(
+            status == "ACTIVE"
+        )
+        self.btn_cancel.setEnabled(
+            status == "ACTIVE"
         )
 
     def show_error(

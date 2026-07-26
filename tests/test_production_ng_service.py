@@ -1,5 +1,6 @@
 ﻿from datetime import datetime
 import unittest
+from datetime import timedelta
 
 from tests.base_db_test import DatabaseTestCase
 from tests.factories.production_execution_factory import (
@@ -646,5 +647,63 @@ class TestProductionNGService(DatabaseTestCase):
             record.id,
             record_ids,
         )
+
+    def test_record_ng_rejects_fractional_quantity(self):
+        execution = self.create_running_execution()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "NG Quantity must be a whole number",
+        ):
+            self.service.record_ng(
+                execution_id=execution.id,
+                ng_type="PROCESSING",
+                reason_code="BURR",
+                quantity=1.5,
+            )
+
+    def test_record_ng_rejects_time_before_execution(self):
+        execution = self.create_running_execution()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "cannot be before Execution Start Time",
+        ):
+            self.service.record_ng(
+                execution_id=execution.id,
+                ng_type="PROCESSING",
+                reason_code="BURR",
+                quantity=1,
+                recorded_at=(
+                    execution.start_time
+                    - timedelta(seconds=1)
+                ),
+            )
+
+    def test_record_ng_rejects_exact_duplicate(self):
+        execution = self.create_running_execution()
+        recorded_at = (
+            execution.start_time
+            + timedelta(minutes=15)
+        )
+        self.service.record_ng(
+            execution_id=execution.id,
+            ng_type="PROCESSING",
+            reason_code="BURR",
+            quantity=2,
+            recorded_at=recorded_at,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Duplicate Production NG record",
+        ):
+            self.service.record_ng(
+                execution_id=execution.id,
+                ng_type="PROCESSING",
+                reason_code="BURR",
+                quantity=2,
+                recorded_at=recorded_at,
+            )
 
    

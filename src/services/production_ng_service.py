@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import isfinite
 
-from src.database.session import get_session
-from src.framework.base_service import BaseService
 from src.framework.exception import NotFoundError
 from src.models.production_execution import (
     ProductionExecution,
@@ -12,9 +11,10 @@ from src.models.production_ng import ProductionNG
 from src.repository.production_ng_repository import (
     ProductionNGRepository,
 )
+from src.services.base_service import SessionOwnedService
 
 
-class ProductionNGService(BaseService):
+class ProductionNGService(SessionOwnedService):
     TYPE_PROCESSING = "PROCESSING"
     TYPE_BLANK = "BLANK"
 
@@ -40,10 +40,7 @@ class ProductionNGService(BaseService):
         self,
         session=None,
     ):
-        super().__init__()
-
-        self._owns_session = session is None
-        self.session = session or get_session()
+        super().__init__(session=session)
 
         self.repository = ProductionNGRepository(
             self.session
@@ -160,6 +157,32 @@ class ProductionNGService(BaseService):
             )
         )
 
+        normalized_recorded_at = (
+            self._normalize_datetime(
+                recorded_at
+            )
+            or execution.end_time
+            or datetime.now()
+        )
+        normalized_employee_code = (
+            self._clean_optional_upper(
+                employee_code
+            )
+        )
+
+        self._validate_recorded_at(
+            execution,
+            normalized_recorded_at,
+        )
+        self._ensure_not_duplicate(
+            execution_id=execution.id,
+            ng_type=normalized_type,
+            reason_code=normalized_reason,
+            quantity=normalized_quantity,
+            recorded_at=normalized_recorded_at,
+            employee_code=normalized_employee_code,
+        )
+
         record = ProductionNG(
             execution_id=execution.id,
             ng_type=normalized_type,
@@ -168,17 +191,8 @@ class ProductionNGService(BaseService):
                 normalized_reason
             ],
             quantity=normalized_quantity,
-            recorded_at=(
-                self._normalize_datetime(
-                    recorded_at
-                )
-                or datetime.now()
-            ),
-            employee_code=(
-                self._clean_optional_upper(
-                    employee_code
-                )
-            ),
+            recorded_at=normalized_recorded_at,
+            employee_code=normalized_employee_code,
             remark=(
                 self._clean_optional_text(
                     remark
@@ -191,7 +205,7 @@ class ProductionNGService(BaseService):
             record
         )
 
-        self.session.flush()
+        self.require_session().flush()
 
         self._synchronize_execution_ng(
             execution.id
@@ -223,7 +237,24 @@ class ProductionNGService(BaseService):
                 "Only ACTIVE NG record can be edited."
             )
 
-        record.ng_type = (
+        execution = self._require_execution(
+            record.execution_id
+        )
+        if str(
+            execution.status or ""
+        ).strip().upper() not in {
+            "RUNNING",
+            "STOPPED",
+            "COMPLETED",
+        }:
+            raise ValueError(
+                (
+                    "NG can only be edited for "
+                    "RUNNING, STOPPED or COMPLETED "
+                    "execution."
+                )
+            )
+        normalized_type = (
             self._normalize_ng_type(
                 ng_type
             )
@@ -235,31 +266,48 @@ class ProductionNGService(BaseService):
             )
         )
 
-        record.reason_code = normalized_reason
-        record.reason_name = self.REASONS[
-            normalized_reason
-        ]
-
-        record.quantity = (
+        normalized_quantity = (
             self._normalize_positive_int(
                 quantity,
                 "NG Quantity",
             )
         )
 
+        normalized_recorded_at = record.recorded_at
         if recorded_at is not None:
-            record.recorded_at = (
+            normalized_recorded_at = (
                 self._normalize_datetime(
                     recorded_at
                 )
             )
 
-        record.employee_code = (
+        normalized_employee_code = (
             self._clean_optional_upper(
                 employee_code
             )
         )
+        self._validate_recorded_at(
+            execution,
+            normalized_recorded_at,
+        )
+        self._ensure_not_duplicate(
+            execution_id=record.execution_id,
+            ng_type=normalized_type,
+            reason_code=normalized_reason,
+            quantity=normalized_quantity,
+            recorded_at=normalized_recorded_at,
+            employee_code=normalized_employee_code,
+            exclude_ng_id=record.id,
+        )
 
+        record.ng_type = normalized_type
+        record.reason_code = normalized_reason
+        record.reason_name = self.REASONS[
+            normalized_reason
+        ]
+        record.quantity = normalized_quantity
+        record.recorded_at = normalized_recorded_at
+        record.employee_code = normalized_employee_code
         record.remark = (
             self._clean_optional_text(
                 remark
@@ -330,7 +378,7 @@ class ProductionNGService(BaseService):
             + execution.blank_ng_qty
         )
 
-        self.session.flush()
+        self.require_session().flush()
 
     # ==========================================================
     # Validation
@@ -368,7 +416,7 @@ class ProductionNGService(BaseService):
             ) from error
 
         execution = (
-            self.session
+            self.require_session()
             .query(ProductionExecution)
             .filter(
                 ProductionExecution.id
@@ -386,6 +434,58 @@ class ProductionNGService(BaseService):
             )
 
         return execution
+
+    @staticmethod
+    def _validate_recorded_at(
+        execution,
+        recorded_at,
+    ):
+        if recorded_at < execution.start_time:
+            raise ValueError(
+                (
+                    "NG Recorded At cannot be before "
+                    "Execution Start Time."
+                )
+            )
+
+        if (
+            execution.end_time is not None
+            and recorded_at > execution.end_time
+        ):
+            raise ValueError(
+                (
+                    "NG Recorded At cannot be after "
+                    "Execution End Time."
+                )
+            )
+
+    def _ensure_not_duplicate(
+        self,
+        *,
+        execution_id,
+        ng_type,
+        reason_code,
+        quantity,
+        recorded_at,
+        employee_code,
+        exclude_ng_id=None,
+    ):
+        duplicate = self.repository.find_duplicate(
+            execution_id=execution_id,
+            ng_type=ng_type,
+            reason_code=reason_code,
+            quantity=quantity,
+            recorded_at=recorded_at,
+            employee_code=employee_code,
+            exclude_ng_id=exclude_ng_id,
+        )
+        if duplicate is not None:
+            raise ValueError(
+                (
+                    "Duplicate Production NG record: "
+                    f"#{duplicate.id}."
+                )
+            )
 
     @classmethod
     def _normalize_ng_type(
@@ -428,14 +528,18 @@ class ProductionNGService(BaseService):
         field_name,
     ):
         try:
-            number = int(
-                float(value)
-            )
+            numeric_value = float(value)
         except (TypeError, ValueError) as error:
             raise ValueError(
                 f"Invalid {field_name}: {value}"
             ) from error
 
+        if not isfinite(numeric_value) or not numeric_value.is_integer():
+            raise ValueError(
+                f"{field_name} must be a whole number."
+            )
+
+        number = int(numeric_value)
         if number <= 0:
             raise ValueError(
                 (
@@ -510,11 +614,13 @@ class ProductionNGService(BaseService):
     # ==========================================================
 
     def commit(self):
-        self.session.commit()
+        self.require_session().commit()
 
     def rollback(self):
-        self.session.rollback()
+        self.require_session().rollback()
 
-    def close(self):
-        if self._owns_session:
-            self.session.close()
+    def commit_changes(self):
+        self.commit()
+
+    def rollback_changes(self):
+        self.rollback()

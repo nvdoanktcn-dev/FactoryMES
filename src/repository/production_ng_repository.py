@@ -75,6 +75,42 @@ class ProductionNGRepository(BaseRepository):
             .all()
         )
 
+    def find_duplicate(
+        self,
+        *,
+        execution_id,
+        ng_type,
+        reason_code,
+        quantity,
+        recorded_at,
+        employee_code=None,
+        exclude_ng_id=None,
+    ):
+        query = (
+            self.session
+            .query(ProductionNG)
+            .filter(
+                ProductionNG.execution_id
+                == int(execution_id),
+                ProductionNG.ng_type
+                == str(ng_type).strip().upper(),
+                ProductionNG.reason_code
+                == str(reason_code).strip().upper(),
+                ProductionNG.quantity == int(quantity),
+                ProductionNG.recorded_at == recorded_at,
+                ProductionNG.employee_code
+                == employee_code,
+                ProductionNG.status == "ACTIVE",
+            )
+        )
+
+        if exclude_ng_id is not None:
+            query = query.filter(
+                ProductionNG.id != int(exclude_ng_id)
+            )
+
+        return query.first()
+
     def sum_quantity_by_execution_id(
         self,
         execution_id,
