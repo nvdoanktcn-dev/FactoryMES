@@ -45,6 +45,48 @@ class ProductionExecutionController:
                 self.service
                 .get_all_executions()
             )
+            session = self.service.require_session()
+            assignment_ids = {
+                execution.assignment_id
+                for execution in executions
+                if execution.assignment_id is not None
+            }
+            assignments_by_id = {}
+
+            if assignment_ids:
+                assignments_by_id = {
+                    assignment.id: assignment
+                    for assignment in (
+                        session.query(ProductionAssignment)
+                        .filter(
+                            ProductionAssignment.id.in_(
+                                assignment_ids
+                            )
+                        )
+                        .all()
+                    )
+                }
+
+            production_order_ids = {
+                assignment.production_order_id
+                for assignment in assignments_by_id.values()
+                if assignment.production_order_id is not None
+            }
+            production_orders_by_id = {}
+
+            if production_order_ids:
+                production_orders_by_id = {
+                    order.id: order
+                    for order in (
+                        session.query(ProductionOrder)
+                        .filter(
+                            ProductionOrder.id.in_(
+                                production_order_ids
+                            )
+                        )
+                        .all()
+                    )
+                }
 
             keyword = (
                 self.page.search_box
@@ -63,27 +105,15 @@ class ProductionExecutionController:
             rows = []
 
             for execution in executions:
-                assignment = (
-                    self.service.session
-                    .query(ProductionAssignment)
-                    .filter(
-                        ProductionAssignment.id
-                        == execution.assignment_id
-                    )
-                    .first()
+                assignment = assignments_by_id.get(
+                    execution.assignment_id
                 )
 
                 production_order = None
 
                 if assignment is not None:
-                    production_order = (
-                        self.service.session
-                        .query(ProductionOrder)
-                        .filter(
-                            ProductionOrder.id
-                            == assignment.production_order_id
-                        )
-                        .first()
+                    production_order = production_orders_by_id.get(
+                        assignment.production_order_id
                     )
 
                 searchable = " ".join(
@@ -188,6 +218,7 @@ class ProductionExecutionController:
             return rows
 
         except Exception as error:
+            self._rollback_safely()
             self.page.show_error(
                 error
             )
@@ -198,21 +229,20 @@ class ProductionExecutionController:
     # ==========================================================
 
     def start_execution(self):
-        dialog = ProductionExecutionDialog(
-            parent=self.page,
-            mode=(
-                ProductionExecutionDialog
-                .MODE_START
-            ),
-            session=self.service.session,
-        )
-
-        if dialog.exec() != QDialog.Accepted:
-            return None
-
-        data = dialog.get_data()
-
         try:
+            dialog = ProductionExecutionDialog(
+                parent=self.page,
+                mode=(
+                    ProductionExecutionDialog
+                    .MODE_START
+                ),
+                session=self.service.require_session(),
+            )
+
+            if dialog.exec() != QDialog.Accepted:
+                return None
+
+            data = dialog.get_data()
             execution = (
                 self.service
                 .start_execution(
@@ -228,7 +258,7 @@ class ProductionExecutionController:
                 )
             )
 
-            self.service.commit()
+            self.service.commit_changes()
             self.load_executions()
 
             QMessageBox.information(
@@ -245,7 +275,7 @@ class ProductionExecutionController:
             return execution
 
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(
                 error
             )
@@ -303,19 +333,18 @@ class ProductionExecutionController:
             )
             return None
 
-        dialog = ProductionExecutionDialog(
-            parent=self.page,
-            mode=mode,
-            execution=execution,
-            session=self.service.session,
-        )
-
-        if dialog.exec() != QDialog.Accepted:
-            return None
-
-        data = dialog.get_data()
-
         try:
+            dialog = ProductionExecutionDialog(
+                parent=self.page,
+                mode=mode,
+                execution=execution,
+                session=self.service.require_session(),
+            )
+
+            if dialog.exec() != QDialog.Accepted:
+                return None
+
+            data = dialog.get_data()
             result = (
                 self.service
                 .stop_execution(
@@ -347,7 +376,7 @@ class ProductionExecutionController:
                 )
             )
 
-            self.service.commit()
+            self.service.commit_changes()
             self.load_executions()
 
             action_text = (
@@ -374,7 +403,7 @@ class ProductionExecutionController:
             return result
 
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(
                 error
             )
@@ -421,13 +450,13 @@ class ProductionExecutionController:
                 )
             )
 
-            self.service.commit()
+            self.service.commit_changes()
             self.load_executions()
 
             return result
 
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(
                 error
             )
@@ -442,3 +471,9 @@ class ProductionExecutionController:
 
     def close(self):
         self.service.close()
+
+    def _rollback_safely(self):
+        try:
+            self.service.rollback_changes()
+        except Exception:
+            pass

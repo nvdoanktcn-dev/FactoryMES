@@ -75,6 +75,26 @@ class ProductionExecutionRepository(
             .first()
         )
 
+    def get_latest_by_assignment_id(
+        self,
+        assignment_id,
+    ):
+        return (
+            self.session
+            .query(ProductionExecution)
+            .filter(
+                ProductionExecution.assignment_id
+                == int(assignment_id),
+                ProductionExecution.status
+                != "CANCELLED",
+            )
+            .order_by(
+                ProductionExecution.start_time.desc(),
+                ProductionExecution.id.desc(),
+            )
+            .first()
+        )
+
     def get_running(self):
         return (
             self.session

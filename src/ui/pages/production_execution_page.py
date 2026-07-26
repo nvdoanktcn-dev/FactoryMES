@@ -376,6 +376,9 @@ class ProductionExecutionPage(QWidget):
         self.btn_refresh.clicked.connect(
             self.controller.refresh
         )
+        self.table.itemSelectionChanged.connect(
+            self._update_action_state
+        )
 
     def _apply_style(self):
         self.title_label.setStyleSheet(
@@ -416,6 +419,8 @@ class ProductionExecutionPage(QWidget):
             button.setMinimumHeight(
                 32
             )
+
+        self._update_action_state()
 
     # ==========================================================
     # Data rendering
@@ -542,6 +547,7 @@ class ProductionExecutionPage(QWidget):
                 )
 
         self.table.resizeRowsToContents()
+        self._update_action_state()
 
     def selected_execution(self):
         selected_rows = (
@@ -635,6 +641,24 @@ class ProductionExecutionPage(QWidget):
                 message
                 or ""
             )
+        )
+
+    def _update_action_state(self):
+        execution = self.selected_execution()
+        status = (
+            str(execution.status or "").strip().upper()
+            if execution is not None
+            else ""
+        )
+
+        self.btn_stop.setEnabled(
+            status == "RUNNING"
+        )
+        self.btn_complete.setEnabled(
+            status == "RUNNING"
+        )
+        self.btn_cancel.setEnabled(
+            status in {"RUNNING", "STOPPED"}
         )
 
     def show_error(

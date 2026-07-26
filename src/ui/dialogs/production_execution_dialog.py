@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.models.production_assignment import ProductionAssignment
+from src.models.production_execution import ProductionExecution
 from src.models.production_order import ProductionOrder
 
 
@@ -37,6 +38,8 @@ class ProductionExecutionDialog(QDialog):
         self.mode = str(mode or self.MODE_START).strip().upper()
         self.execution = execution
         self.session = session
+        self._assignments_by_id = {}
+        self._production_orders_by_id = {}
 
         if self.mode not in {
             self.MODE_START,
@@ -78,6 +81,10 @@ class ProductionExecutionDialog(QDialog):
 
         self.ng_qty_spin = QSpinBox(self)
         self.ng_qty_spin.setRange(0, 2_000_000_000)
+        self.ng_qty_spin.setReadOnly(True)
+        self.ng_qty_spin.setToolTip(
+            "Automatically calculated from Processing NG + Blank NG."
+        )
 
         self.processing_ng_spin = QSpinBox(self)
         self.processing_ng_spin.setRange(0, 2_000_000_000)
@@ -191,6 +198,18 @@ class ProductionExecutionDialog(QDialog):
             self._load_execution_assignment()
 
     def _load_start_assignments(self):
+        running_assignment_ids = {
+            assignment_id
+            for (assignment_id,) in (
+                self.session
+                .query(ProductionExecution.assignment_id)
+                .filter(
+                    ProductionExecution.status == "RUNNING"
+                )
+                .all()
+            )
+        }
+
         assignments = (
             self.session
             .query(ProductionAssignment)
@@ -205,17 +224,42 @@ class ProductionExecutionDialog(QDialog):
             .all()
         )
 
+        if running_assignment_ids:
+            assignments = [
+                assignment
+                for assignment in assignments
+                if assignment.id not in running_assignment_ids
+            ]
+
+        self._assignments_by_id = {
+            assignment.id: assignment
+            for assignment in assignments
+        }
+        production_order_ids = {
+            assignment.production_order_id
+            for assignment in assignments
+            if assignment.production_order_id is not None
+        }
+        if production_order_ids:
+            self._production_orders_by_id = {
+                order.id: order
+                for order in (
+                    self.session
+                    .query(ProductionOrder)
+                    .filter(
+                        ProductionOrder.id.in_(
+                            production_order_ids
+                        )
+                    )
+                    .all()
+                )
+            }
+
         self.assignment_combo.clear()
 
         for assignment in assignments:
-            production_order = (
-                self.session
-                .query(ProductionOrder)
-                .filter(
-                    ProductionOrder.id
-                    == assignment.production_order_id
-                )
-                .first()
+            production_order = self._production_orders_by_id.get(
+                assignment.production_order_id
             )
 
             self.assignment_combo.addItem(
@@ -255,6 +299,8 @@ class ProductionExecutionDialog(QDialog):
                 )
             )
 
+        self._assignments_by_id[assignment.id] = assignment
+
         production_order = (
             self.session
             .query(ProductionOrder)
@@ -264,6 +310,10 @@ class ProductionExecutionDialog(QDialog):
             )
             .first()
         )
+        if production_order is not None:
+            self._production_orders_by_id[
+                production_order.id
+            ] = production_order
 
         self.assignment_combo.clear()
         self.assignment_combo.addItem(
@@ -363,13 +413,13 @@ class ProductionExecutionDialog(QDialog):
             + self.blank_ng_spin.value()
         )
 
-        if categorized_ng > self.ng_qty_spin.value():
+        if categorized_ng != self.ng_qty_spin.value():
             QMessageBox.warning(
                 self,
                 "Production Execution",
                 (
                     "Processing NG + Blank NG "
-                    "cannot exceed Total NG."
+                    "must equal Total NG."
                 ),
             )
             return
@@ -464,14 +514,8 @@ class ProductionExecutionDialog(QDialog):
             )
             return
 
-        assignment = (
-            self.session
-            .query(ProductionAssignment)
-            .filter(
-                ProductionAssignment.id
-                == int(assignment_id)
-            )
-            .first()
+        assignment = self._assignments_by_id.get(
+            int(assignment_id)
         )
 
         if assignment is None:
@@ -480,14 +524,8 @@ class ProductionExecutionDialog(QDialog):
             )
             return
 
-        production_order = (
-            self.session
-            .query(ProductionOrder)
-            .filter(
-                ProductionOrder.id
-                == assignment.production_order_id
-            )
-            .first()
+        production_order = self._production_orders_by_id.get(
+            assignment.production_order_id
         )
 
         self.assignment_info_label.setText(
@@ -518,10 +556,9 @@ class ProductionExecutionDialog(QDialog):
             + self.blank_ng_spin.value()
         )
 
-        if categorized_ng > self.ng_qty_spin.value():
-            self.ng_qty_spin.setValue(
-                categorized_ng
-            )
+        self.ng_qty_spin.setValue(
+            categorized_ng
+        )
 
     @staticmethod
     def _assignment_display(
