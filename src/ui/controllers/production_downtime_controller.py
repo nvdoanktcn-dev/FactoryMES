@@ -17,6 +17,70 @@ class ProductionDowntimeController:
     def load_events(self):
         try:
             events = self.service.get_all_events()
+            session = self.service.require_session()
+            execution_ids = {
+                event.execution_id
+                for event in events
+                if event.execution_id is not None
+            }
+            executions_by_id = {}
+
+            if execution_ids:
+                executions_by_id = {
+                    execution.id: execution
+                    for execution in (
+                        session.query(ProductionExecution)
+                        .filter(
+                            ProductionExecution.id.in_(
+                                execution_ids
+                            )
+                        )
+                        .all()
+                    )
+                }
+
+            assignment_ids = {
+                execution.assignment_id
+                for execution in executions_by_id.values()
+                if execution.assignment_id is not None
+            }
+            assignments_by_id = {}
+
+            if assignment_ids:
+                assignments_by_id = {
+                    assignment.id: assignment
+                    for assignment in (
+                        session.query(ProductionAssignment)
+                        .filter(
+                            ProductionAssignment.id.in_(
+                                assignment_ids
+                            )
+                        )
+                        .all()
+                    )
+                }
+
+            production_order_ids = {
+                assignment.production_order_id
+                for assignment in assignments_by_id.values()
+                if assignment.production_order_id is not None
+            }
+            production_orders_by_id = {}
+
+            if production_order_ids:
+                production_orders_by_id = {
+                    order.id: order
+                    for order in (
+                        session.query(ProductionOrder)
+                        .filter(
+                            ProductionOrder.id.in_(
+                                production_order_ids
+                            )
+                        )
+                        .all()
+                    )
+                }
+
             keyword = self.page.search_box.text().strip().lower()
             status_filter = self.page.status_filter.currentText().strip().upper()
             reason_filter = self.page.reason_filter.currentData()
@@ -24,27 +88,21 @@ class ProductionDowntimeController:
             rows = []
 
             for event in events:
-                execution = (
-                    self.service.session.query(ProductionExecution)
-                    .filter(ProductionExecution.id == event.execution_id)
-                    .first()
+                execution = executions_by_id.get(
+                    event.execution_id
                 )
 
                 assignment = None
                 production_order = None
 
                 if execution is not None:
-                    assignment = (
-                        self.service.session.query(ProductionAssignment)
-                        .filter(ProductionAssignment.id == execution.assignment_id)
-                        .first()
+                    assignment = assignments_by_id.get(
+                        execution.assignment_id
                     )
 
                 if assignment is not None:
-                    production_order = (
-                        self.service.session.query(ProductionOrder)
-                        .filter(ProductionOrder.id == assignment.production_order_id)
-                        .first()
+                    production_order = production_orders_by_id.get(
+                        assignment.production_order_id
                     )
 
                 searchable = " ".join(
@@ -95,29 +153,29 @@ class ProductionDowntimeController:
             return rows
 
         except Exception as error:
+            self._rollback_safely()
             self.page.show_error(error)
             return []
 
     def start_downtime(self):
-        dialog = ProductionDowntimeDialog(
-            parent=self.page,
-            mode=ProductionDowntimeDialog.MODE_START,
-            session=self.service.session,
-        )
-
-        if dialog.exec() != QDialog.Accepted:
-            return None
-
-        data = dialog.get_data()
-
         try:
+            dialog = ProductionDowntimeDialog(
+                parent=self.page,
+                mode=ProductionDowntimeDialog.MODE_START,
+                session=self.service.require_session(),
+            )
+
+            if dialog.exec() != QDialog.Accepted:
+                return None
+
+            data = dialog.get_data()
             event = self.service.start_downtime(
                 execution_id=data["execution_id"],
                 reason_code=data["reason_code"],
                 start_time=data["start_time"],
                 remark=data["remark"],
             )
-            self.service.commit()
+            self.service.commit_changes()
             self.load_events()
 
             QMessageBox.information(
@@ -133,7 +191,7 @@ class ProductionDowntimeController:
             return event
 
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(error)
             return None
 
@@ -156,25 +214,24 @@ class ProductionDowntimeController:
             )
             return None
 
-        dialog = ProductionDowntimeDialog(
-            parent=self.page,
-            mode=ProductionDowntimeDialog.MODE_STOP,
-            downtime_event=event,
-            session=self.service.session,
-        )
-
-        if dialog.exec() != QDialog.Accepted:
-            return None
-
-        data = dialog.get_data()
-
         try:
+            dialog = ProductionDowntimeDialog(
+                parent=self.page,
+                mode=ProductionDowntimeDialog.MODE_STOP,
+                downtime_event=event,
+                session=self.service.require_session(),
+            )
+
+            if dialog.exec() != QDialog.Accepted:
+                return None
+
+            data = dialog.get_data()
             result = self.service.stop_downtime(
                 event.id,
                 end_time=data["end_time"],
                 remark=data["remark"],
             )
-            self.service.commit()
+            self.service.commit_changes()
             self.load_events()
 
             QMessageBox.information(
@@ -189,7 +246,7 @@ class ProductionDowntimeController:
             return result
 
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(error)
             return None
 
@@ -229,12 +286,12 @@ class ProductionDowntimeController:
 
         try:
             result = self.service.cancel_downtime(event.id)
-            self.service.commit()
+            self.service.commit_changes()
             self.load_events()
             return result
 
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(error)
             return None
 
@@ -243,3 +300,9 @@ class ProductionDowntimeController:
 
     def close(self):
         self.service.close()
+
+    def _rollback_safely(self):
+        try:
+            self.service.rollback_changes()
+        except Exception:
+            pass

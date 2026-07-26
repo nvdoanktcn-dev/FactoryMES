@@ -92,6 +92,26 @@ class ProductionDowntimeRepository(
             .all()
         )
 
+    def get_latest_closed_by_execution_id(
+        self,
+        execution_id,
+    ):
+        return (
+            self.session
+            .query(ProductionDowntime)
+            .filter(
+                ProductionDowntime.execution_id
+                == int(execution_id),
+                ProductionDowntime.status
+                == "CLOSED",
+            )
+            .order_by(
+                ProductionDowntime.end_time.desc(),
+                ProductionDowntime.id.desc(),
+            )
+            .first()
+        )
+
     def sum_duration_by_execution_id(
         self,
         execution_id,

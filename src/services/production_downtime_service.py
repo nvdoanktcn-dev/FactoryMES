@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from src.database.session import get_session
-from src.framework.base_service import BaseService
 from src.framework.exception import (
     NotFoundError,
 )
@@ -16,10 +14,11 @@ from src.models.production_execution import (
 from src.repository.production_downtime_repository import (
     ProductionDowntimeRepository,
 )
+from src.services.base_service import SessionOwnedService
 
 
 class ProductionDowntimeService(
-    BaseService
+    SessionOwnedService
 ):
     STATUS_OPEN = "OPEN"
     STATUS_CLOSED = "CLOSED"
@@ -32,7 +31,8 @@ class ProductionDowntimeService(
         "MAINTENANCE": "Bảo dưỡng máy móc",
         "POWER_OUTAGE": "Mất điện",
         "MACHINE_REPAIR": "Sửa chữa máy móc",
-        "TOOL_CHANGE": "Thay dao/khuôn",
+        "TOOL_CHANGE": "Thay/sửa dao hoặc khuôn",
+        "MOLD_CLEANING": "Vệ sinh khuôn/liệu men",
         "PRODUCT_PROGRAMMING": (
             "Lập trình cho sản phẩm"
         ),
@@ -42,16 +42,7 @@ class ProductionDowntimeService(
         self,
         session=None,
     ):
-        super().__init__()
-
-        self._owns_session = (
-            session is None
-        )
-
-        self.session = (
-            session
-            or get_session()
-        )
+        super().__init__(session=session)
 
         self.repository = (
             ProductionDowntimeRepository(
@@ -147,18 +138,48 @@ class ProductionDowntimeService(
             )
         )
 
+        normalized_start = (
+            self._normalize_datetime(
+                start_time
+            )
+            or datetime.now()
+        )
+
+        if normalized_start < execution.start_time:
+            raise ValueError(
+                (
+                    "Downtime Start Time cannot be before "
+                    "Execution Start Time."
+                )
+            )
+
+        latest_closed = (
+            self.repository
+            .get_latest_closed_by_execution_id(
+                execution.id
+            )
+        )
+        if (
+            latest_closed is not None
+            and latest_closed.end_time is not None
+            and normalized_start < latest_closed.end_time
+        ):
+            raise ValueError(
+                (
+                    "Downtime Start Time overlaps "
+                    f"Downtime #{latest_closed.id}; it must be "
+                    f"on or after "
+                    f"{latest_closed.end_time:%Y-%m-%d %H:%M:%S}."
+                )
+            )
+
         event = ProductionDowntime(
             execution_id=execution.id,
             reason_code=normalized_reason,
             reason_name=self.REASONS[
                 normalized_reason
             ],
-            start_time=(
-                self._normalize_datetime(
-                    start_time
-                )
-                or datetime.now()
-            ),
+            start_time=normalized_start,
             status=self.STATUS_OPEN,
             remark=self._clean_optional_text(
                 remark
@@ -204,6 +225,20 @@ class ProductionDowntimeService(
                 (
                     "Downtime End Time must be "
                     "after Start Time."
+                )
+            )
+
+        execution = self._require_execution(
+            event.execution_id
+        )
+        if (
+            execution.end_time is not None
+            and normalized_end > execution.end_time
+        ):
+            raise ValueError(
+                (
+                    "Downtime End Time cannot be after "
+                    "Execution End Time."
                 )
             )
 
@@ -271,10 +306,8 @@ class ProductionDowntimeService(
             execution_id
         )
 
-        execution.downtime_minutes = (
-            self.get_total_minutes(
-                execution_id
-            )
+        total_downtime = self.get_total_minutes(
+            execution_id
         )
 
         if execution.end_time is not None:
@@ -283,13 +316,23 @@ class ProductionDowntimeService(
                 - execution.start_time
             ).total_seconds() / 60.0
 
-            execution.runtime_minutes = max(
-                0.0,
+            if total_downtime > elapsed_minutes:
+                raise ValueError(
+                    (
+                        "Total Downtime cannot exceed "
+                        "Execution elapsed time."
+                    )
+                )
+
+        execution.downtime_minutes = total_downtime
+
+        if execution.end_time is not None:
+            execution.runtime_minutes = (
                 elapsed_minutes
-                - execution.downtime_minutes,
+                - total_downtime
             )
 
-        self.session.flush()
+        self.require_session().flush()
 
     # ==========================================================
     # Validation
@@ -333,7 +376,7 @@ class ProductionDowntimeService(
             ) from error
 
         execution = (
-            self.session
+            self.require_session()
             .query(ProductionExecution)
             .filter(
                 ProductionExecution.id
@@ -430,11 +473,13 @@ class ProductionDowntimeService(
     # ==========================================================
 
     def commit(self):
-        self.session.commit()
+        self.require_session().commit()
 
     def rollback(self):
-        self.session.rollback()
+        self.require_session().rollback()
 
-    def close(self):
-        if self._owns_session:
-            self.session.close()
+    def commit_changes(self):
+        self.commit()
+
+    def rollback_changes(self):
+        self.rollback()

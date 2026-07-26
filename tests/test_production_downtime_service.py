@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from tests.base_db_test import DatabaseTestCase
 
 from src.models.production_assignment import ProductionAssignment
@@ -180,3 +182,81 @@ class TestProductionDowntimeService(DatabaseTestCase):
             refreshed.downtime_minutes,
             30,
         )
+
+    def test_start_rejects_time_before_execution(self):
+        execution = self.get_running_execution()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "cannot be before Execution Start Time",
+        ):
+            self.downtime_service.start_downtime(
+                execution.id,
+                "WAIT_MATERIAL",
+                start_time=(
+                    execution.start_time
+                    - timedelta(minutes=1)
+                ),
+            )
+
+    def test_start_rejects_overlap_with_closed_downtime(self):
+        execution = self.get_running_execution()
+        first_start = (
+            execution.start_time
+            + timedelta(hours=1)
+        )
+        first = self.downtime_service.start_downtime(
+            execution.id,
+            "WAIT_MATERIAL",
+            start_time=first_start,
+        )
+        self.downtime_service.stop_downtime(
+            first.id,
+            end_time=(
+                first_start
+                + timedelta(minutes=30)
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Start Time overlaps",
+        ):
+            self.downtime_service.start_downtime(
+                execution.id,
+                "WAIT_OPERATOR",
+                start_time=(
+                    first_start
+                    + timedelta(minutes=15)
+                ),
+            )
+
+    def test_stop_rejects_time_after_execution_end(self):
+        execution = self.get_running_execution()
+        event_start = (
+            execution.start_time
+            + timedelta(hours=1)
+        )
+        event = self.downtime_service.start_downtime(
+            execution.id,
+            "WAIT_MATERIAL",
+            start_time=event_start,
+        )
+        execution.end_time = (
+            event_start
+            + timedelta(minutes=20)
+        )
+        execution.status = "STOPPED"
+        self.session.flush()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "cannot be after Execution End Time",
+        ):
+            self.downtime_service.stop_downtime(
+                event.id,
+                end_time=(
+                    event_start
+                    + timedelta(minutes=30)
+                ),
+            )

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.models.production_assignment import ProductionAssignment
+from src.models.production_downtime import ProductionDowntime
 from src.models.production_execution import ProductionExecution
 from src.models.production_order import ProductionOrder
 from src.services.production_downtime_service import (
@@ -38,6 +39,9 @@ class ProductionDowntimeDialog(QDialog):
         self.mode = str(mode or self.MODE_START).strip().upper()
         self.downtime_event = downtime_event
         self.session = session
+        self._executions_by_id = {}
+        self._assignments_by_id = {}
+        self._production_orders_by_id = {}
 
         if self.mode not in {self.MODE_START, self.MODE_STOP}:
             raise ValueError(
@@ -152,6 +156,18 @@ class ProductionDowntimeDialog(QDialog):
             self._load_existing_event()
 
     def _load_running_executions(self):
+        open_execution_ids = {
+            execution_id
+            for (execution_id,) in (
+                self.session
+                .query(ProductionDowntime.execution_id)
+                .filter(
+                    ProductionDowntime.status == "OPEN"
+                )
+                .all()
+            )
+        }
+
         executions = (
             self.session
             .query(ProductionExecution)
@@ -166,30 +182,69 @@ class ProductionDowntimeDialog(QDialog):
             .all()
         )
 
+        if open_execution_ids:
+            executions = [
+                execution
+                for execution in executions
+                if execution.id not in open_execution_ids
+            ]
+
+        self._executions_by_id = {
+            execution.id: execution
+            for execution in executions
+        }
+        assignment_ids = {
+            execution.assignment_id
+            for execution in executions
+            if execution.assignment_id is not None
+        }
+        if assignment_ids:
+            self._assignments_by_id = {
+                assignment.id: assignment
+                for assignment in (
+                    self.session
+                    .query(ProductionAssignment)
+                    .filter(
+                        ProductionAssignment.id.in_(
+                            assignment_ids
+                        )
+                    )
+                    .all()
+                )
+            }
+
+        production_order_ids = {
+            assignment.production_order_id
+            for assignment in self._assignments_by_id.values()
+            if assignment.production_order_id is not None
+        }
+        if production_order_ids:
+            self._production_orders_by_id = {
+                order.id: order
+                for order in (
+                    self.session
+                    .query(ProductionOrder)
+                    .filter(
+                        ProductionOrder.id.in_(
+                            production_order_ids
+                        )
+                    )
+                    .all()
+                )
+            }
+
         self.execution_combo.clear()
 
         for execution in executions:
-            assignment = (
-                self.session
-                .query(ProductionAssignment)
-                .filter(
-                    ProductionAssignment.id
-                    == execution.assignment_id
-                )
-                .first()
+            assignment = self._assignments_by_id.get(
+                execution.assignment_id
             )
 
             production_order = None
 
             if assignment is not None:
-                production_order = (
-                    self.session
-                    .query(ProductionOrder)
-                    .filter(
-                        ProductionOrder.id
-                        == assignment.production_order_id
-                    )
-                    .first()
+                production_order = self._production_orders_by_id.get(
+                    assignment.production_order_id
                 )
 
             self.execution_combo.addItem(
@@ -227,6 +282,8 @@ class ProductionDowntimeDialog(QDialog):
                 )
             )
 
+        self._executions_by_id[execution.id] = execution
+
         assignment = (
             self.session
             .query(ProductionAssignment)
@@ -236,6 +293,8 @@ class ProductionDowntimeDialog(QDialog):
             )
             .first()
         )
+        if assignment is not None:
+            self._assignments_by_id[assignment.id] = assignment
 
         production_order = None
 
@@ -249,6 +308,10 @@ class ProductionDowntimeDialog(QDialog):
                 )
                 .first()
             )
+            if production_order is not None:
+                self._production_orders_by_id[
+                    production_order.id
+                ] = production_order
 
         self.execution_combo.clear()
         self.execution_combo.addItem(
@@ -377,14 +440,8 @@ class ProductionDowntimeDialog(QDialog):
             )
             return
 
-        execution = (
-            self.session
-            .query(ProductionExecution)
-            .filter(
-                ProductionExecution.id
-                == int(execution_id)
-            )
-            .first()
+        execution = self._executions_by_id.get(
+            int(execution_id)
         )
 
         if execution is None:
@@ -393,27 +450,15 @@ class ProductionDowntimeDialog(QDialog):
             )
             return
 
-        assignment = (
-            self.session
-            .query(ProductionAssignment)
-            .filter(
-                ProductionAssignment.id
-                == execution.assignment_id
-            )
-            .first()
+        assignment = self._assignments_by_id.get(
+            execution.assignment_id
         )
 
         production_order = None
 
         if assignment is not None:
-            production_order = (
-                self.session
-                .query(ProductionOrder)
-                .filter(
-                    ProductionOrder.id
-                    == assignment.production_order_id
-                )
-                .first()
+            production_order = self._production_orders_by_id.get(
+                assignment.production_order_id
             )
 
         self.execution_info_label.setText(
@@ -421,6 +466,11 @@ class ProductionDowntimeDialog(QDialog):
                 execution,
                 assignment,
                 production_order,
+            )
+        )
+        self.start_time_edit.setMinimumDateTime(
+            self._to_qdatetime(
+                execution.start_time
             )
         )
 

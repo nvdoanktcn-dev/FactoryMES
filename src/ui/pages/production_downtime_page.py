@@ -382,6 +382,9 @@ class ProductionDowntimePage(QWidget):
         self.btn_refresh.clicked.connect(
             self.controller.refresh
         )
+        self.table.itemSelectionChanged.connect(
+            self._update_action_state
+        )
 
     def _apply_style(self):
         self.title_label.setStyleSheet(
@@ -421,6 +424,8 @@ class ProductionDowntimePage(QWidget):
             button.setMinimumHeight(
                 32
             )
+
+        self._update_action_state()
 
     # ==========================================================
     # Data rendering
@@ -527,6 +532,7 @@ class ProductionDowntimePage(QWidget):
                 )
 
         self.table.resizeRowsToContents()
+        self._update_action_state()
 
     def selected_event(self):
         selected_rows = (
@@ -617,6 +623,21 @@ class ProductionDowntimePage(QWidget):
                 message
                 or ""
             )
+        )
+
+    def _update_action_state(self):
+        event = self.selected_event()
+        status = (
+            str(event.status or "").strip().upper()
+            if event is not None
+            else ""
+        )
+
+        self.btn_stop.setEnabled(
+            status == "OPEN"
+        )
+        self.btn_cancel.setEnabled(
+            status == "OPEN"
         )
 
     def show_error(
