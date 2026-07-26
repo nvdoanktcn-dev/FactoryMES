@@ -72,6 +72,9 @@ from src.ui.widgets.trend_widget import TrendWidget
 from src.ui.widgets.production_progress_widget import (
     ProductionProgressWidget,
 )
+from src.ui.widgets.oee_gauge_widget import (
+    OEEGaugeWidget,
+)
 
 
 
@@ -365,8 +368,17 @@ class OEEDashboardPage(QWidget):
         )
 
         root.addWidget(self.filter_panel)
+
+        self.oee_gauge = OEEGaugeWidget()
+        self.oee_gauge.setMaximumWidth(280)
+
         self.kpi_panel = OEEKPIPanel()
-        root.addWidget(self.kpi_panel)
+
+        overview_row = QHBoxLayout()
+        overview_row.setSpacing(12)
+        overview_row.addWidget(self.oee_gauge)
+        overview_row.addWidget(self.kpi_panel, 1)
+        root.addLayout(overview_row)
 
         self.tabs = QTabWidget()
 
@@ -966,6 +978,13 @@ class OEEDashboardPage(QWidget):
         self,
         data: OEEDashboardData,
     ) -> None:
+        self.oee_gauge.set_value(
+            self._read_metric(
+                data.summary,
+                "oee",
+            )
+        )
+
         self.kpi_panel.set_summary(
             data.summary
         )
@@ -979,6 +998,7 @@ class OEEDashboardPage(QWidget):
         )
 
     def _clear_dashboard(self) -> None:
+        self.oee_gauge.clear()
         self.kpi_panel.set_summary({})
 
         self.breakdown_panel.set_data(
@@ -1091,6 +1111,13 @@ class OEEDashboardPage(QWidget):
         if hasattr(value, "__dict__"):
             return vars(value)
         return {}
+
+    @staticmethod
+    def _read_metric(source: Any, name: str) -> Any:
+        if isinstance(source, Mapping):
+            return source.get(name, 0)
+
+        return getattr(source, name, 0)
 
     def _build_filters(self) -> OEEDashboardFilters:
         """Build dashboard filters using the current model field names."""

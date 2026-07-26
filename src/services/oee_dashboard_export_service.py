@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
+from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+from uuid import uuid4
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -209,7 +211,17 @@ class OEEDashboardExportService:
             columns=self.BREAKDOWN_COLUMNS,
         )
 
-        workbook.save(target)
+        temporary_target = target.with_name(
+            f".{target.stem}.{uuid4().hex}.xlsx"
+        )
+
+        try:
+            workbook.save(temporary_target)
+            temporary_target.replace(target)
+        finally:
+            if temporary_target.exists():
+                temporary_target.unlink()
+
         return target
 
     def _write_summary_sheet(
@@ -485,30 +497,36 @@ class OEEDashboardExportService:
     def _to_float(
         value: Any,
     ) -> float:
-        if value in {
-            None,
-            "",
-        }:
+        if value is None or value == "":
             return 0.0
 
-        return round(
-            float(value),
-            2,
-        )
+        if isinstance(value, str):
+            value = (
+                value.strip()
+                .replace(",", "")
+                .replace("%", "")
+            )
+            if not value:
+                return 0.0
+
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+        if not isfinite(number):
+            return 0.0
+
+        return round(number, 2)
 
     @staticmethod
     def _to_int(
         value: Any,
     ) -> int:
-        if value in {
-            None,
-            "",
-        }:
-            return 0
-
         return int(
             round(
-                float(value)
+                OEEDashboardExportService
+                ._to_float(value)
             )
         )
 

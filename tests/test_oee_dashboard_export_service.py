@@ -161,6 +161,11 @@ def test_export_creates_expected_workbook() -> None:
             ".xlsx",
             "Service must automatically add .xlsx suffix.",
         )
+        assert_equal(
+            list(exported_path.parent.glob(".*.xlsx")),
+            [],
+            "Successful export must not leave temporary workbooks.",
+        )
 
         workbook = load_workbook(
             exported_path,
@@ -452,11 +457,69 @@ def test_export_supports_empty_breakdowns() -> None:
             workbook.close()
 
 
+def test_export_sanitizes_non_finite_and_percent_text() -> None:
+    service = OEEDashboardExportService()
+    dashboard = build_dashboard_data()
+    dashboard.summary["availability"] = float("nan")
+    dashboard.summary["performance"] = float("inf")
+    dashboard.summary["oee"] = "75.47%"
+
+    with TemporaryDirectory() as temporary_directory:
+        exported_path = service.export(
+            dashboard=dashboard,
+            output_path=(
+                Path(temporary_directory)
+                / "sanitized.xlsx"
+            ),
+        )
+
+        workbook = load_workbook(
+            exported_path,
+            data_only=True,
+        )
+
+        try:
+            summary_sheet = workbook["Summary"]
+            summary_values = {
+                summary_sheet.cell(
+                    row=row_index,
+                    column=1,
+                ).value: summary_sheet.cell(
+                    row=row_index,
+                    column=2,
+                ).value
+                for row_index in range(
+                    5,
+                    summary_sheet.max_row + 1,
+                )
+            }
+
+            assert_equal(
+                summary_values["Availability"],
+                0,
+                "NaN availability must be exported as zero.",
+            )
+            assert_equal(
+                summary_values["Performance"],
+                0,
+                "Infinite performance must be exported as zero.",
+            )
+            assert_equal(
+                summary_values["OEE"],
+                75.47,
+                "Percentage text must be exported numerically.",
+            )
+
+        finally:
+            workbook.close()
+
+
 def run_all_tests() -> None:
     tests = [
         test_export_creates_expected_workbook,
         test_export_rejects_invalid_dashboard_type,
         test_export_supports_empty_breakdowns,
+        test_export_sanitizes_non_finite_and_percent_text,
     ]
 
     for test in tests:

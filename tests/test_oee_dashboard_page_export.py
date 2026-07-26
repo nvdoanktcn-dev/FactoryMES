@@ -181,6 +181,11 @@ def test_page_loads_dashboard_and_enables_export() -> None:
             "OEE KPI card was not rendered correctly.",
         )
         assert_equal(
+            page.oee_gauge.value(),
+            72.75,
+            "OEE Gauge was not synchronized with summary data.",
+        )
+        assert_equal(
             page.machine_table.rowCount(),
             1,
             "Machine breakdown table was not populated.",

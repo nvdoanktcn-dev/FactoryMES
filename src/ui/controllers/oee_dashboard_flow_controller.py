@@ -383,13 +383,13 @@ class OEEDashboardFlowController(QObject):
         self.export_started.emit()
 
         try:
-            self._export_dashboard(
+            result = self._export_dashboard(
                 self.current_data,
                 normalized_path,
             )
 
             self.export_completed.emit(
-                normalized_path
+                str(result or normalized_path)
             )
 
             return True
