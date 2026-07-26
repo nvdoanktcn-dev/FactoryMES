@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date, datetime
 
-from src.database.session import get_session
-from src.framework.base_service import BaseService
+
 from src.framework.exception import (
     DuplicateError,
     NotFoundError,
@@ -16,9 +16,12 @@ from src.repository.work_order_repository import (
 from src.services.product_service import (
     ProductService,
 )
+from sqlalchemy.orm import Session
 
+from src.services.base_service import SessionOwnedService
 
-class WorkOrderService(BaseService):
+class WorkOrderService(SessionOwnedService):
+    MAX_DURATION_MONTHS = 2
     PRIORITY_LOW = "LOW"
     PRIORITY_NORMAL = "NORMAL"
     PRIORITY_HIGH = "HIGH"
@@ -47,19 +50,36 @@ class WorkOrderService(BaseService):
         STATUS_CANCELLED,
     }
 
+    ALLOWED_STATUS_TRANSITIONS = {
+        STATUS_PLANNED: {
+            STATUS_RELEASED,
+            STATUS_CANCELLED,
+        },
+        STATUS_RELEASED: {
+            STATUS_IN_PROGRESS,
+            STATUS_ON_HOLD,
+            STATUS_CANCELLED,
+        },
+        STATUS_IN_PROGRESS: {
+            STATUS_ON_HOLD,
+            STATUS_COMPLETED,
+            STATUS_CANCELLED,
+        },
+        STATUS_ON_HOLD: {
+            STATUS_RELEASED,
+            STATUS_IN_PROGRESS,
+            STATUS_CANCELLED,
+        },
+        STATUS_COMPLETED: set(),
+        STATUS_CANCELLED: set(),
+    }
+
     def __init__(
         self,
         session=None,
     ):
-        super().__init__()
-
-        self._owns_session = (
-            session is None
-        )
-
-        self.session = (
-            session
-            or get_session()
+        super().__init__(
+            session=session
         )
 
         self.repository = WorkOrderRepository(
@@ -69,7 +89,6 @@ class WorkOrderService(BaseService):
         self.product_service = ProductService(
             session=self.session
         )
-
     # ==========================================================
     # Query
     # ==========================================================
@@ -231,6 +250,15 @@ class WorkOrderService(BaseService):
             normalized["product_code"]
         )
 
+        current_status = self._normalize_status(
+            work_order.status
+        )
+        requested_status = normalized["status"]
+        self._validate_status_transition(
+            current_status,
+            requested_status,
+        )
+
         work_order.product_code = normalized[
             "product_code"
         ]
@@ -381,6 +409,18 @@ class WorkOrderService(BaseService):
                 )
             )
 
+        current_status = self._normalize_status(
+            work_order.status
+        )
+
+        if normalized_status == current_status:
+            return work_order
+
+        self._validate_status_transition(
+            current_status,
+            normalized_status,
+        )
+
         work_order.status = normalized_status
 
         self.repository.update()
@@ -392,14 +432,16 @@ class WorkOrderService(BaseService):
     # ==========================================================
 
     def commit(self):
-        self.session.commit()
+        super().commit()
 
     def rollback(self):
-        self.session.rollback()
+        super().rollback()
 
-    def close(self):
-        if self._owns_session:
-            self.session.close()
+    def commit_changes(self):
+        self.commit()
+
+    def rollback_changes(self):
+        self.rollback()
 
     # ==========================================================
     # Validation
@@ -418,6 +460,26 @@ class WorkOrderService(BaseService):
                 (
                     "Product does not exist: "
                     f"{product_code}"
+                )
+            )
+
+    @classmethod
+    def _validate_status_transition(
+        cls,
+        current_status,
+        requested_status,
+    ):
+        if requested_status == current_status:
+            return
+
+        allowed_statuses = cls.ALLOWED_STATUS_TRANSITIONS[
+            current_status
+        ]
+        if requested_status not in allowed_statuses:
+            raise ValueError(
+                (
+                    "Invalid Work Order status transition: "
+                    f"{current_status} -> {requested_status}."
                 )
             )
 
@@ -449,6 +511,19 @@ class WorkOrderService(BaseService):
                 (
                     "Due Date cannot be before "
                     "Start Date."
+                )
+            )
+
+        latest_due_date = cls._add_months(
+            data["start_date"],
+            cls.MAX_DURATION_MONTHS,
+        )
+        if data["due_date"] > latest_due_date:
+            raise ValueError(
+                (
+                    "Work Order duration cannot exceed "
+                    f"{cls.MAX_DURATION_MONTHS} months "
+                    f"(latest Due Date: {latest_due_date:%Y-%m-%d})."
                 )
             )
 
@@ -640,6 +715,14 @@ class WorkOrderService(BaseService):
             )
 
         return priority
+
+    @staticmethod
+    def _add_months(value, months):
+        month_index = value.month - 1 + months
+        year = value.year + month_index // 12
+        month = month_index % 12 + 1
+        day = min(value.day, monthrange(year, month)[1])
+        return date(year, month, day)
 
     @classmethod
     def _normalize_status(

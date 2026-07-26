@@ -18,6 +18,7 @@ from src.services.product_service import ProductService
 
 
 class WorkOrderDialog(QDialog):
+    MAX_DURATION_MONTHS = 2
     PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"]
     STATUSES = [
         "PLANNED",
@@ -56,6 +57,10 @@ class WorkOrderDialog(QDialog):
 
         self.status_combo = QComboBox(self)
         self.status_combo.addItems(self.STATUSES)
+        self.status_combo.setEnabled(False)
+        self.status_combo.setToolTip(
+            "Use the Work Order workflow buttons to change status."
+        )
 
         self.remark_edit = QTextEdit(self)
         self.remark_edit.setMaximumHeight(100)
@@ -132,8 +137,14 @@ class WorkOrderDialog(QDialog):
         self.remark_edit.setPlainText(str(self.work_order.remark or ""))
 
     def _sync_due_date(self, start_date):
+        maximum_due_date = start_date.addMonths(self.MAX_DURATION_MONTHS)
+        self.due_date_edit.setMinimumDate(start_date)
+        self.due_date_edit.setMaximumDate(maximum_due_date)
+
         if self.due_date_edit.date() < start_date:
             self.due_date_edit.setDate(start_date)
+        elif self.due_date_edit.date() > maximum_due_date:
+            self.due_date_edit.setDate(maximum_due_date)
 
     def _accept_if_valid(self):
         if not self.work_order_no_edit.text().strip():
@@ -147,6 +158,15 @@ class WorkOrderDialog(QDialog):
                 self,
                 "Work Order",
                 "Due Date cannot be before Start Date.",
+            )
+            return
+        if self.due_date_edit.date() > self.start_date_edit.date().addMonths(
+            self.MAX_DURATION_MONTHS
+        ):
+            QMessageBox.warning(
+                self,
+                "Work Order",
+                "Work Order duration cannot exceed two months.",
             )
             return
         self.accept()
