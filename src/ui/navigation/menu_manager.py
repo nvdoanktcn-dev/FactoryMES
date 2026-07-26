@@ -98,6 +98,26 @@ class MenuManager:
             ),
         ])
 
+        equipment = cls._create_item(
+            "🦾 Equipment"
+        )
+
+        equipment.addChildren([
+            cls._create_item(
+                "CNC",
+                "CNC",
+            ),
+            cls._create_item(
+                "Robot",
+                "Robot",
+            ),
+        ])
+
+        inventory = cls._create_item(
+            "📦 Inventory",
+            "Inventory",
+        )
+
         system = cls._create_item(
             "⚙ System"
         )
@@ -117,6 +137,12 @@ class MenuManager:
         )
         tree.addTopLevelItem(
             production
+        )
+        tree.addTopLevelItem(
+            equipment
+        )
+        tree.addTopLevelItem(
+            inventory
         )
         tree.addTopLevelItem(
             system

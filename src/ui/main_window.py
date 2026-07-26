@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 from PySide6.QtCore import Qt
@@ -14,24 +16,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.ui.navigation.menu_manager import (
-    MenuManager,
-)
+from src.ui.navigation.menu_manager import MenuManager
 from src.ui.navigation.navigation_manager import (
     NavigationManager,
 )
-from src.ui.theme.theme_manager import (
-    ThemeManager,
-)
-from src.ui.pages.oee_dashboard_page import OEEDashboardPage
+from src.ui.theme.theme_manager import ThemeManager
 
 
 class MainWindow(QMainWindow):
     """
     Cửa sổ chính của FactoryMES.
 
-    Menu hiển thị text riêng.
-    Khóa điều hướng được đọc từ Qt.UserRole.
+    Chức năng chính:
+
+    - Hiển thị menu điều hướng bên trái.
+    - Lazy-load page khi người dùng mở lần đầu.
+    - Hiển thị page trong QStackedWidget.
+    - Quản lý theme.
+    - Đóng controller/service/session khi thoát ứng dụng.
     """
 
     DEFAULT_PAGE = "Dashboard"
@@ -39,8 +41,13 @@ class MainWindow(QMainWindow):
     def __init__(
         self,
         parent=None,
-    ):
+        dashboard_controller=None,
+    ) -> None:
         super().__init__(parent)
+
+        self.dashboard_controller = (
+            dashboard_controller
+        )
 
         self.setObjectName(
             "FactoryMESMainWindow"
@@ -84,9 +91,13 @@ class MainWindow(QMainWindow):
         self.navigation_manager = (
             NavigationManager(
                 self.stack,
-                dashboard_controller=getattr(self, 'dashboard_controller', None)
+                dashboard_controller=(
+                    self.dashboard_controller
+                ),
             )
         )
+
+        self._is_closing = False
 
         self.build_ui()
         self.build_navigation()
@@ -97,7 +108,9 @@ class MainWindow(QMainWindow):
     # UI
     # ==========================================================
 
-    def build_ui(self):
+    def build_ui(
+        self,
+    ) -> None:
         central_widget = QWidget(
             self
         )
@@ -117,7 +130,9 @@ class MainWindow(QMainWindow):
             0,
         )
 
-        root_layout.setSpacing(0)
+        root_layout.setSpacing(
+            0
+        )
 
         root_layout.addWidget(
             self.create_header()
@@ -138,7 +153,9 @@ class MainWindow(QMainWindow):
 
         self.apply_style()
 
-    def create_header(self):
+    def create_header(
+        self,
+    ) -> QWidget:
         header = QWidget(
             self
         )
@@ -158,7 +175,9 @@ class MainWindow(QMainWindow):
             8,
         )
 
-        layout.setSpacing(10)
+        layout.setSpacing(
+            10
+        )
 
         self.update_title()
 
@@ -190,7 +209,9 @@ class MainWindow(QMainWindow):
 
         return header
 
-    def create_body(self):
+    def create_body(
+        self,
+    ) -> QWidget:
         body = QWidget(
             self
         )
@@ -210,7 +231,9 @@ class MainWindow(QMainWindow):
             0,
         )
 
-        layout.setSpacing(0)
+        layout.setSpacing(
+            0
+        )
 
         self.configure_navigation()
         self.configure_stack()
@@ -226,7 +249,9 @@ class MainWindow(QMainWindow):
 
         return body
 
-    def create_footer(self):
+    def create_footer(
+        self,
+    ) -> QWidget:
         footer = QWidget(
             self
         )
@@ -246,13 +271,13 @@ class MainWindow(QMainWindow):
             5,
         )
 
+        self.footer_label.setObjectName(
+            "FactoryMESFooterLabel"
+        )
+
         self.footer_label.setText(
             "FactoryMES Framework V1.0"
             "  |  Database Connected"
-        )
-
-        self.footer_label.setObjectName(
-            "FactoryMESFooterLabel"
         )
 
         layout.addWidget(
@@ -263,7 +288,9 @@ class MainWindow(QMainWindow):
 
         return footer
 
-    def configure_navigation(self):
+    def configure_navigation(
+        self,
+    ) -> None:
         self.navigation.setObjectName(
             "FactoryMESNavigation"
         )
@@ -297,7 +324,9 @@ class MainWindow(QMainWindow):
             QSizePolicy.Expanding,
         )
 
-    def configure_stack(self):
+    def configure_stack(
+        self,
+    ) -> None:
         self.stack.setObjectName(
             "FactoryMESContentStack"
         )
@@ -308,10 +337,18 @@ class MainWindow(QMainWindow):
         )
 
     # ==========================================================
-    # Navigation
+    # Navigation setup
     # ==========================================================
 
-    def build_navigation(self):
+    def build_navigation(
+        self,
+    ) -> None:
+        """
+        Tạo menu và đăng ký page factories.
+
+        Không tạo toàn bộ QWidget ở bước này.
+        """
+
         self.navigation.clear()
 
         MenuManager.build_menu(
@@ -322,7 +359,9 @@ class MainWindow(QMainWindow):
 
         self.navigation.expandAll()
 
-    def connect_events(self):
+    def connect_events(
+        self,
+    ) -> None:
         self.navigation.itemClicked.connect(
             self.on_menu_clicked
         )
@@ -331,11 +370,15 @@ class MainWindow(QMainWindow):
             self.toggle_theme
         )
 
+    # ==========================================================
+    # Navigation events
+    # ==========================================================
+
     def on_menu_clicked(
         self,
         item,
         column=0,
-    ):
+    ) -> None:
         del column
 
         if item is None:
@@ -359,17 +402,14 @@ class MainWindow(QMainWindow):
         if not page_name:
             return
 
-        pages = getattr(
-            self.navigation_manager,
-            "pages",
-            {},
-        )
-
-        if page_name not in pages:
+        if not self.navigation_manager.has_page(
+            page_name
+        ):
             self.set_footer_status(
                 (
                     "Navigation Error: "
-                    f"Page '{page_name}' is not registered."
+                    f"Page '{page_name}' "
+                    "is not registered."
                 )
             )
             return
@@ -388,14 +428,19 @@ class MainWindow(QMainWindow):
                 f"Navigation Error: {error}"
             )
 
-    def open_default_page(self):
-        pages = getattr(
-            self.navigation_manager,
-            "pages",
-            {},
-        )
+    def open_default_page(
+        self,
+    ) -> None:
+        """
+        Mở page mặc định.
 
-        if self.DEFAULT_PAGE not in pages:
+        Dashboard chỉ được tạo tại đây, sau khi menu và factory
+        đã được đăng ký.
+        """
+
+        if not self.navigation_manager.has_page(
+            self.DEFAULT_PAGE
+        ):
             self.open_first_available_page()
             return
 
@@ -409,7 +454,10 @@ class MainWindow(QMainWindow):
             )
 
             self.set_footer_status(
-                f"Current Page: {self.DEFAULT_PAGE}"
+                (
+                    "Current Page: "
+                    f"{self.DEFAULT_PAGE}"
+                )
             )
 
         except Exception as error:
@@ -417,45 +465,129 @@ class MainWindow(QMainWindow):
                 f"Dashboard Error: {error}"
             )
 
-    def open_first_available_page(self):
-        pages = getattr(
-            self.navigation_manager,
-            "pages",
-            {},
+            self.open_first_available_page(
+                excluded_page=(
+                    self.DEFAULT_PAGE
+                )
+            )
+
+    def open_first_available_page(
+        self,
+        excluded_page=None,
+    ) -> None:
+        """
+        Mở page đầu tiên có thể tạo được.
+
+        Dùng khi Dashboard không tồn tại hoặc tạo thất bại.
+        """
+
+        page_names = (
+            self.navigation_manager
+            .page_names()
         )
 
-        if not pages:
+        if not page_names:
             self.set_footer_status(
                 "No application page is registered."
             )
             return
 
-        first_page_name = next(
-            iter(pages)
+        normalized_excluded = str(
+            excluded_page or ""
+        ).strip()
+
+        for page_name in page_names:
+            if (
+                normalized_excluded
+                and page_name
+                == normalized_excluded
+            ):
+                continue
+
+            try:
+                self.navigation_manager.navigate(
+                    page_name
+                )
+
+                self.select_navigation_item(
+                    page_name
+                )
+
+                self.set_footer_status(
+                    (
+                        "Current Page: "
+                        f"{page_name}"
+                    )
+                )
+
+                return
+
+            except Exception:
+                continue
+
+        self.set_footer_status(
+            "No application page could be opened."
         )
+
+    def navigate_to(
+        self,
+        page_name: str,
+    ) -> bool:
+        """
+        Điều hướng bằng code từ module khác.
+
+        Trả về True nếu thành công.
+        """
+
+        page_name = str(
+            page_name or ""
+        ).strip()
+
+        if not page_name:
+            return False
+
+        if not self.navigation_manager.has_page(
+            page_name
+        ):
+            self.set_footer_status(
+                (
+                    "Navigation Error: "
+                    f"Page '{page_name}' "
+                    "is not registered."
+                )
+            )
+            return False
 
         try:
             self.navigation_manager.navigate(
-                first_page_name
+                page_name
             )
 
             self.select_navigation_item(
-                first_page_name
+                page_name
             )
 
             self.set_footer_status(
-                f"Current Page: {first_page_name}"
+                f"Current Page: {page_name}"
             )
+
+            return True
 
         except Exception as error:
             self.set_footer_status(
                 f"Navigation Error: {error}"
             )
 
+            return False
+
+    # ==========================================================
+    # Navigation tree helpers
+    # ==========================================================
+
     def select_navigation_item(
         self,
         page_name,
-    ):
+    ) -> None:
         root_item = (
             self.navigation
             .invisibleRootItem()
@@ -477,6 +609,13 @@ class MainWindow(QMainWindow):
         parent_item,
         page_key,
     ):
+        normalized_key = str(
+            page_key or ""
+        ).strip()
+
+        if not normalized_key:
+            return None
+
         for index in range(
             parent_item.childCount()
         ):
@@ -492,14 +631,14 @@ class MainWindow(QMainWindow):
             if (
                 child_key is not None
                 and str(child_key).strip()
-                == str(page_key).strip()
+                == normalized_key
             ):
                 return child
 
             nested_item = (
                 cls.find_tree_item_by_key(
                     child,
-                    page_key,
+                    normalized_key,
                 )
             )
 
@@ -514,16 +653,78 @@ class MainWindow(QMainWindow):
         parent_item,
         text,
     ):
+        """
+        Giữ tương thích với code cũ.
+
+        Menu hiện tại sử dụng khóa trong Qt.UserRole.
+        """
+
         return cls.find_tree_item_by_key(
             parent_item,
             text,
         )
 
     # ==========================================================
+    # Current page helpers
+    # ==========================================================
+
+    def current_page_name(
+        self,
+    ):
+        return (
+            self.navigation_manager
+            .current_page_name()
+        )
+
+    def current_page(
+        self,
+    ):
+        page_name = self.current_page_name()
+
+        if page_name is None:
+            return None
+
+        return (
+            self.navigation_manager
+            .get_page(page_name)
+        )
+
+    def reload_current_page(
+        self,
+    ) -> bool:
+        page_name = self.current_page_name()
+
+        if page_name is None:
+            return False
+
+        try:
+            self.navigation_manager.reload_page(
+                page_name
+            )
+
+            self.set_footer_status(
+                (
+                    "Reloaded Page: "
+                    f"{page_name}"
+                )
+            )
+
+            return True
+
+        except Exception as error:
+            self.set_footer_status(
+                f"Reload Error: {error}"
+            )
+
+            return False
+
+    # ==========================================================
     # Theme
     # ==========================================================
 
-    def toggle_theme(self):
+    def toggle_theme(
+        self,
+    ) -> None:
         app = QApplication.instance()
 
         if app is None:
@@ -543,7 +744,9 @@ class MainWindow(QMainWindow):
     # Header / Footer
     # ==========================================================
 
-    def update_title(self):
+    def update_title(
+        self,
+    ) -> None:
         current_time = (
             datetime.now()
             .strftime(
@@ -559,18 +762,54 @@ class MainWindow(QMainWindow):
     def set_footer_status(
         self,
         message,
-    ):
+    ) -> None:
         self.footer_label.setText(
             "FactoryMES Framework V1.0"
             f"  |  {str(message or '')}"
         )
 
     # ==========================================================
+    # Lifecycle
+    # ==========================================================
+
+    def closeEvent(
+        self,
+        event,
+    ) -> None:
+        """
+        Đóng toàn bộ page đã được tạo.
+
+        Các page chưa từng được mở không tồn tại nên không cần đóng.
+        """
+
+        if self._is_closing:
+            event.accept()
+            return
+
+        self._is_closing = True
+
+        try:
+            self.navigation_manager.close_all_pages()
+
+        except Exception as error:
+            self.set_footer_status(
+                f"Shutdown Warning: {error}"
+            )
+
+        finally:
+            super().closeEvent(
+                event
+            )
+
+    # ==========================================================
     # Style
     # ==========================================================
 
-    def apply_style(self):
-        self.setStyleSheet("""
+    def apply_style(
+        self,
+    ) -> None:
+        self.setStyleSheet(
+            """
             QWidget#FactoryMESCentralWidget {
                 background: #F4F6F8;
             }
@@ -636,4 +875,5 @@ class MainWindow(QMainWindow):
                 color: #37474F;
                 font-size: 11px;
             }
-        """)
+            """
+        )
