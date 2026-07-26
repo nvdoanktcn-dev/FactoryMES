@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import text
 
+from src.config.app_config import VERSION
 from src.database.session import get_session
 
 
@@ -12,7 +13,7 @@ class SystemStatusService:
     Không phụ thuộc UI.
     """
 
-    APP_VERSION = "3.0.0"
+    APP_VERSION = VERSION
 
     def __init__(
         self,

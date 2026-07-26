@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.config.app_config import APP_NAME, VERSION
 from src.ui.navigation.menu_manager import MenuManager
 from src.ui.navigation.navigation_manager import (
     NavigationManager,
@@ -54,7 +55,7 @@ class MainWindow(QMainWindow):
         )
 
         self.setWindowTitle(
-            "FactoryMES V1.0"
+            f"{APP_NAME} V{VERSION}"
         )
 
         self.resize(
@@ -276,7 +277,7 @@ class MainWindow(QMainWindow):
         )
 
         self.footer_label.setText(
-            "FactoryMES Framework V1.0"
+            f"{APP_NAME} Framework V{VERSION}"
             "  |  Database Connected"
         )
 
@@ -755,7 +756,7 @@ class MainWindow(QMainWindow):
         )
 
         self.title_label.setText(
-            "🏭 FactoryMES V1.0"
+            f"🏭 {APP_NAME} V{VERSION}"
             f"  |  {current_time}"
         )
 
@@ -764,7 +765,7 @@ class MainWindow(QMainWindow):
         message,
     ) -> None:
         self.footer_label.setText(
-            "FactoryMES Framework V1.0"
+            f"{APP_NAME} Framework V{VERSION}"
             f"  |  {str(message or '')}"
         )
 

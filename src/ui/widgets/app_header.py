@@ -1,6 +1,8 @@
 from datetime import datetime
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel
 
+from src.config.app_config import APP_NAME, VERSION
+
 
 class AppHeader(QWidget):
     def __init__(self):
@@ -8,7 +10,9 @@ class AppHeader(QWidget):
 
         layout = QHBoxLayout()
 
-        title = QLabel("🏭 FactoryMES V1.0")
+        title = QLabel(
+            f"🏭 {APP_NAME} V{VERSION}"
+        )
         title.setStyleSheet("font-size: 22px; font-weight: bold; color: white;")
 
         info = QLabel("🌐 VI | 中文    👤 Admin")
