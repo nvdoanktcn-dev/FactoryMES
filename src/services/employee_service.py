@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from src.database.session import get_session
-from src.framework.base_service import BaseService
 from src.framework.exception import (
     DuplicateError,
     NotFoundError,
@@ -11,9 +9,12 @@ from src.models.employee import Employee
 from src.repository.employee_repository import (
     EmployeeRepository,
 )
+from sqlalchemy.orm import Session
+
+from src.services.base_service import SessionOwnedService
 
 
-class EmployeeService(BaseService):
+class EmployeeService(SessionOwnedService):
     STATUS_ACTIVE = "ACTIVE"
     STATUS_INACTIVE = "INACTIVE"
 
@@ -24,25 +25,31 @@ class EmployeeService(BaseService):
 
     def __init__(
         self,
-        session=None,
-    ):
-        super().__init__()
-
-        self._owns_session = (
-            session is None
-        )
-
-        self.session = (
-            session
-            or get_session()
-        )
-
-        self.repository = (
-            EmployeeRepository(
-                self.session
+        session: Session | None = None,
+        repository: EmployeeRepository | None = None,
+    ) -> None:
+        if repository is not None:
+            repository_session = getattr(
+                repository,
+                "session",
+                None,
             )
+
+            super().__init__(
+                session=repository_session,
+            )
+
+            self._owns_session = False
+            self.repository = repository
+            return
+
+        super().__init__(
+            session=session,
         )
 
+        self.repository = EmployeeRepository(
+            self.require_session()
+        )
     # ==========================================================
     # Query
     # ==========================================================
@@ -280,6 +287,25 @@ class EmployeeService(BaseService):
         self,
         employee_code,
     ):
+        return self.set_employee_status(
+            employee_code,
+            self.STATUS_INACTIVE,
+        )
+
+    def activate_employee(
+        self,
+        employee_code,
+    ):
+        return self.set_employee_status(
+            employee_code,
+            self.STATUS_ACTIVE,
+        )
+
+    def set_employee_status(
+        self,
+        employee_code,
+        status,
+    ):
         code = self._normalize_code(
             employee_code
         )
@@ -293,10 +319,16 @@ class EmployeeService(BaseService):
                 f"Employee not found: {code}"
             )
 
-        employee.status = self.STATUS_INACTIVE
+        normalized_status = self._normalize_status(
+            status
+        )
+        employee.status = normalized_status
 
-        self.log_warning(
-            f"Inactive Employee: {code}"
+        self.log_info(
+            (
+                f"Set Employee Status: "
+                f"{code} -> {normalized_status}"
+            )
         )
 
         self.repository.update()
@@ -307,15 +339,14 @@ class EmployeeService(BaseService):
     # Transaction
     # ==========================================================
 
-    def commit(self):
-        self.session.commit()
+    def commit_changes(self) -> None:
+        self.require_session().commit()
 
-    def rollback(self):
-        self.session.rollback()
+    def rollback_changes(self) -> None:
+        session = self.require_session()
 
-    def close(self):
-        if self._owns_session:
-            self.session.close()
+        if session.is_active:
+            session.rollback()
 
     # ==========================================================
     # Validation and normalization
@@ -387,7 +418,7 @@ class EmployeeService(BaseService):
                 )
             ),
             "shift": (
-                cls._clean_optional_text(
+                cls._normalize_shift(
                     data.get(
                         "shift"
                     )
@@ -434,6 +465,39 @@ class EmployeeService(BaseService):
         ).strip()
 
         return text or None
+
+    @staticmethod
+    def _normalize_shift(
+        value,
+    ):
+        shift = str(
+            value or ""
+        ).strip().upper()
+
+        if not shift:
+            return None
+
+        mapping = {
+            "DAY": "DAY",
+            "D": "DAY",
+            "NGÀY": "DAY",
+            "CA NGÀY": "DAY",
+            "NIGHT": "NIGHT",
+            "N": "NIGHT",
+            "ĐÊM": "NIGHT",
+            "CA ĐÊM": "NIGHT",
+        }
+
+        normalized = mapping.get(
+            shift
+        )
+
+        if normalized is None:
+            raise ValueError(
+                f"Invalid Employee Shift: {shift}"
+            )
+
+        return normalized
 
     @classmethod
     def _normalize_status(

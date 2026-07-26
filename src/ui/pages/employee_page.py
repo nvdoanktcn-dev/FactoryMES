@@ -23,6 +23,8 @@ class EmployeePage(MasterCRUDPage):
         "Employee Name",
         "Department",
         "Position",
+        "Shift",
+        "Remark",
         "Status",
     ]
 
@@ -118,6 +120,24 @@ class EmployeePage(MasterCRUDPage):
                 ).lower()
                 or keyword
                 in str(
+                    getattr(
+                        employee,
+                        "shift",
+                        "",
+                    )
+                    or ""
+                ).lower()
+                or keyword
+                in str(
+                    getattr(
+                        employee,
+                        "remark",
+                        "",
+                    )
+                    or ""
+                ).lower()
+                or keyword
+                in str(
                     employee.status or ""
                 ).lower()
             )
@@ -132,6 +152,18 @@ class EmployeePage(MasterCRUDPage):
             getattr(
                 employee,
                 "position",
+                "",
+            )
+            or "",
+            getattr(
+                employee,
+                "shift",
+                "",
+            )
+            or "",
+            getattr(
+                employee,
+                "remark",
                 "",
             )
             or "",
@@ -161,102 +193,227 @@ class EmployeePage(MasterCRUDPage):
     # ==========================================================
 
     def create_record(self, data):
-        if hasattr(
-            self.service,
-            "create_employee",
-        ):
-            try:
-                return self.service.create_employee(
+        try:
+            if hasattr(
+                self.service,
+                "create_employee",
+            ):
+                try:
+                    result = self.service.create_employee(
+                        data
+                    )
+
+                except TypeError:
+                    result = self.service.create_employee(
+                        employee_code=data.get(
+                            "employee_code",
+                            "",
+                        ),
+                        employee_name=data.get(
+                            "employee_name",
+                            "",
+                        ),
+                        department=data.get(
+                            "department",
+                        ),
+                        position=data.get(
+                            "position",
+                        ),
+                        shift=data.get(
+                            "shift",
+                        ),
+                        remark=data.get(
+                            "remark",
+                        ),
+                        status=data.get(
+                            "status",
+                            "ACTIVE",
+                        ),
+                    )
+
+                self._commit_changes()
+                return result
+
+            if hasattr(
+                self.service,
+                "create",
+            ):
+                result = self.service.create(
                     data
                 )
+                self._commit_changes()
+                return result
 
-            except TypeError:
-                return self.service.create_employee(
-                    employee_code=data.get(
-                        "employee_code",
-                        "",
-                    ),
-                    employee_name=data.get(
-                        "employee_name",
-                        "",
-                    ),
-                    department=data.get(
-                        "department",
-                    ),
-                    position=data.get(
-                        "position",
-                    ),
-                    status=data.get(
-                        "status",
-                        "ACTIVE",
-                    ),
-                )
-
-        if hasattr(
-            self.service,
-            "create",
-        ):
-            return self.service.create(
-                data
+            raise AttributeError(
+                "EmployeeService does not provide "
+                "create_employee() or create()."
             )
 
-        raise AttributeError(
-            "EmployeeService does not provide "
-            "create_employee() or create()."
-        )
+        except Exception:
+            self._rollback_changes()
+            raise
 
     def update_record(
         self,
         record_key,
         data,
     ):
-        if hasattr(
-            self.service,
-            "update_employee",
-        ):
-            return self.service.update_employee(
-                record_key,
-                data,
+        try:
+            if hasattr(
+                self.service,
+                "update_employee",
+            ):
+                result = self.service.update_employee(
+                    record_key,
+                    data,
+                )
+                self._commit_changes()
+                return result
+
+            if hasattr(
+                self.service,
+                "update",
+            ):
+                result = self.service.update(
+                    record_key,
+                    data,
+                )
+                self._commit_changes()
+                return result
+
+            raise AttributeError(
+                "EmployeeService does not provide "
+                "update_employee() or update()."
             )
 
-        if hasattr(
-            self.service,
-            "update",
-        ):
-            return self.service.update(
-                record_key,
-                data,
-            )
-
-        raise AttributeError(
-            "EmployeeService does not provide "
-            "update_employee() or update()."
-        )
+        except Exception:
+            self._rollback_changes()
+            raise
 
     def delete_record(
         self,
         record_key,
     ):
-        if hasattr(
-            self.service,
-            "delete_employee",
-        ):
-            return self.service.delete_employee(
-                record_key
+        try:
+            if hasattr(
+                self.service,
+                "delete_employee",
+            ):
+                result = self.service.delete_employee(
+                    record_key
+                )
+                self._commit_changes()
+                return result
+
+            if hasattr(
+                self.service,
+                "delete",
+            ):
+                result = self.service.delete(
+                    record_key
+                )
+                self._commit_changes()
+                return result
+
+            raise AttributeError(
+                "EmployeeService does not provide "
+                "delete_employee() or delete()."
             )
 
-        if hasattr(
-            self.service,
-            "delete",
-        ):
-            return self.service.delete(
-                record_key
-            )
+        except Exception:
+            self._rollback_changes()
+            raise
 
-        raise AttributeError(
-            "EmployeeService does not provide "
-            "delete_employee() or delete()."
+    def add_context_actions(self, menu):
+        employee = self.get_selected_record()
+
+        if employee is None:
+            return {}
+
+        status = str(
+            employee.status or ""
+        ).strip().upper()
+
+        if status != "INACTIVE":
+            return {}
+
+        action_activate = menu.addAction(
+            "Activate Employee"
         )
+
+        return {
+            action_activate: self.handle_activate
+        }
+
+    def handle_activate(self):
+        employee = self.get_selected_record()
+
+        if employee is None:
+            return
+
+        confirmed = self.confirm(
+            "Activate Employee",
+            (
+                "Activate Employee:\n\n"
+                f"{employee.employee_code}?"
+            ),
+        )
+
+        if not confirmed:
+            return
+
+        try:
+            activate_method = getattr(
+                self.service,
+                "activate_employee",
+                None,
+            )
+
+            if not callable(activate_method):
+                raise AttributeError(
+                    (
+                        "EmployeeService does not provide "
+                        "activate_employee()."
+                    )
+                )
+
+            activate_method(
+                employee.employee_code
+            )
+            self._commit_changes()
+            self.refresh_table()
+
+            self.show_info(
+                "Success",
+                "Employee activated successfully.",
+            )
+
+        except Exception as error:
+            self._rollback_changes()
+            self.show_error(
+                "Activate Employee Error",
+                str(error),
+            )
+
+    def _commit_changes(self):
+        commit_method = getattr(
+            self.service,
+            "commit_changes",
+            None,
+        )
+
+        if callable(commit_method):
+            commit_method()
+
+    def _rollback_changes(self):
+        rollback_method = getattr(
+            self.service,
+            "rollback_changes",
+            None,
+        )
+
+        if callable(rollback_method):
+            rollback_method()
 
     # ==========================================================
     # Summary
@@ -309,12 +466,13 @@ class EmployeePage(MasterCRUDPage):
             2,
             3,
             4,
+            6,
         }:
             item.setTextAlignment(
                 Qt.AlignCenter
             )
 
-        if column_index == 4:
+        if column_index == 6:
             status = str(
                 value or ""
             ).strip().upper()
@@ -391,6 +549,22 @@ class EmployeePage(MasterCRUDPage):
                 getattr(
                     employee,
                     "position",
+                    "",
+                )
+                or "",
+
+            "Shift":
+                getattr(
+                    employee,
+                    "shift",
+                    "",
+                )
+                or "",
+
+            "Remark":
+                getattr(
+                    employee,
+                    "remark",
                     "",
                 )
                 or "",

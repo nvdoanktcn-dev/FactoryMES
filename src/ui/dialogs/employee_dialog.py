@@ -20,6 +20,12 @@ class EmployeeDialog(QDialog):
         "INACTIVE",
     ]
 
+    SHIFTS = [
+        "",
+        "DAY",
+        "NIGHT",
+    ]
+
     def __init__(
         self,
         parent=None,
@@ -35,12 +41,15 @@ class EmployeeDialog(QDialog):
             else "Edit Employee"
         )
 
-        self.resize(440, 340)
+        self.resize(460, 430)
 
         self.employee_code = QLineEdit()
         self.employee_name = QLineEdit()
         self.department = QLineEdit()
         self.position = QLineEdit()
+        self.shift = QComboBox()
+        self.shift.addItems(self.SHIFTS)
+        self.remark = QLineEdit()
 
         self.status = QComboBox()
         self.status.addItems(self.STATUSES)
@@ -72,6 +81,16 @@ class EmployeeDialog(QDialog):
         form_layout.addRow(
             "Position",
             self.position,
+        )
+
+        form_layout.addRow(
+            "Shift",
+            self.shift,
+        )
+
+        form_layout.addRow(
+            "Remark",
+            self.remark,
         )
 
         form_layout.addRow(
@@ -119,6 +138,25 @@ class EmployeeDialog(QDialog):
             getattr(
                 self.employee,
                 "position",
+                "",
+            )
+            or ""
+        )
+
+        self.set_combo_value(
+            self.shift,
+            getattr(
+                self.employee,
+                "shift",
+                "",
+            )
+            or "",
+        )
+
+        self.remark.setText(
+            getattr(
+                self.employee,
+                "remark",
                 "",
             )
             or ""
@@ -188,6 +226,19 @@ class EmployeeDialog(QDialog):
 
             "position": (
                 self.position
+                .text()
+                .strip()
+            ),
+
+            "shift": (
+                self.shift
+                .currentText()
+                .strip()
+                .upper()
+            ),
+
+            "remark": (
+                self.remark
                 .text()
                 .strip()
             ),
