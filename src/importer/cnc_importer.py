@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -5,12 +6,28 @@ import pandas as pd
 from src.importer.base_importer import BaseImporter
 from src.importer.data_cleaner import DataCleaner
 from src.importer.data_validator import DataValidator
-from src.importer.import_result import ImportResult
+
+
+@dataclass
+class CNCImportResult:
+    """
+    Kết quả import CNC theo interface mà MasterCRUDPage.handle_import()
+    cần: total/valid dùng cho preview, total/created/updated/skipped/
+    invalid/errors dùng cho thông báo kết quả sau khi import.
+    """
+
+    total: int = 0
+    valid: int = 0
+    invalid: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    errors: list = field(default_factory=list)
 
 
 class CNCImporter(BaseImporter):
     """
-    CNC Excel Importer
+    CNC Excel/CSV Importer.
 
     Pipeline
 
@@ -23,7 +40,7 @@ class CNCImporter(BaseImporter):
         Data Validator
             │
             ▼
-        Production Engine (Next Sprint)
+        CNCProductionLogService (lưu vào tb_cnc_production_log)
     """
 
     SUPPORTED_EXTENSIONS = {
@@ -177,112 +194,157 @@ class CNCImporter(BaseImporter):
     # ==========================================================
 
     def validate_data(self, dataframe):
+        """
+        Trả về danh sách lỗi dạng [{"row": ..., "message": ...}].
 
-        result = ImportResult()
+        Nếu file thiếu cột bắt buộc, lỗi cột được coi như áp dụng
+        cho toàn bộ các dòng (không thể xác định dòng cụ thể).
+        """
+        try:
+            return self.validator.validate_dataframe(dataframe)
 
-        dataframe_errors = self.validator.validate_dataframe(
-            dataframe
-        )
-
-        if dataframe_errors:
-
-            for error in dataframe_errors:
-
-                result.add_error(
-                    error["row"],
-                    error["message"]
-                )
-
-            result.finish(len(dataframe))
-
-            return result
-
-        for index, row in dataframe.iterrows():
-
-            try:
-
-                if self.validator.validate(row):
-
-                    result.add_success()
-
-                else:
-
-                    result.add_error(
-                        index + 2,
-                        "Validation failed."
-                    )
-
-            except Exception as error:
-
-                result.add_error(
-                    index + 2,
-                    str(error)
-                )
-
-        result.finish(len(dataframe))
-
-        return result
+        except ValueError as error:
+            return [
+                {"row": index + 2, "message": str(error)}
+                for index in range(len(dataframe))
+            ]
 
     # ==========================================================
     # Preview
     # ==========================================================
 
     def preview(self, filename):
-
         dataframe = self._load_and_clean(filename)
 
-        errors = self.validator.validate_dataframe(
-            dataframe
+        errors = self.validate_data(dataframe)
+
+        result = CNCImportResult(
+            total=len(dataframe),
+            valid=len(dataframe) - len(errors),
+            invalid=len(errors),
+            errors=errors,
         )
 
-        if errors:
-
-            details = "\n".join(
-                f"Row {error['row']}: {error['message']}"
-                for error in errors
-            )
-
-            raise ValueError(
-                f"Found {len(errors)} error(s):\n\n{details}"
-            )
-
-        return dataframe
+        return {
+            "result": result,
+            "errors": errors,
+            "dataframe": dataframe,
+        }
 
     # ==========================================================
     # Save
     # ==========================================================
 
-    def save(self, dataframe):
+    def save(self, dataframe, source_file=None):
         """
-        Sprint hiện tại chưa ghi Database.
+        Lưu các dòng vào CNCProductionLog qua CNCProductionLogService.
 
-        Sprint tiếp theo:
-
-            dataframe
-                │
-                ▼
-        ProductionEngine.process_log()
+        Import cục bộ để tránh phụ thuộc vòng (importer <-> service)
+        khi module này được nạp trước khi DB sẵn sàng.
         """
+        from src.services.cnc_production_log_service import (
+            CNCProductionLogService,
+        )
 
-        return True
+        if dataframe is None or dataframe.empty:
+            return 0
+
+        service = CNCProductionLogService()
+
+        created = 0
+
+        try:
+            for _, row in dataframe.iterrows():
+                data = self._row_to_log_data(row)
+
+                service.create_log_from_import(
+                    data,
+                    source_file=source_file,
+                )
+
+                created += 1
+
+        finally:
+            service.close()
+
+        return created
+
+    @staticmethod
+    def _row_to_log_data(row):
+        def value(column):
+            result = row.get(column)
+
+            try:
+                if pd.isna(result):
+                    return None
+            except (TypeError, ValueError):
+                pass
+
+            return result
+
+        log_date = value("Ngày")
+
+        if hasattr(log_date, "date"):
+            log_date = log_date.date()
+
+        return {
+            "log_date": log_date,
+            "machine_name": value("Tên thiết bị"),
+            "work_order_no": value("Mã công lệnh"),
+            "product_name": value("Tên sản phẩm"),
+            "operator_name": value("Nhân viên thao tác"),
+            "operation": value("OP"),
+            "shift": value("Ca"),
+            "actual_time_hours": value("Thời gian thực tế (H)"),
+            "qty_ok": value("Số lượng OK"),
+            "qty_ok_plus_ng": value(
+                "Số lượng OK+Số lượng gia công NG"
+            ),
+            "total_ng": value("Tổng NG"),
+            "raw_ng": value("Phôi NG"),
+            "process_ng": value("Gia công NG"),
+            "actual_pcs": value("Thực tế PCS"),
+            "standard_pcs": value("Tiêu chuẩn sản lượng PCS"),
+            "diff_pcs": value("Chênh lệch PCS"),
+        }
 
     # ==========================================================
     # Import
     # ==========================================================
 
     def import_file(self, filename):
-
         dataframe = self._load_and_clean(filename)
 
-        result = self.validate_data(
-            dataframe
+        errors = self.validate_data(dataframe)
+
+        invalid_rows = {
+            error["row"] - 2
+            for error in errors
+            if isinstance(error.get("row"), int)
+        }
+
+        valid_dataframe = dataframe.drop(
+            index=[
+                index
+                for index in dataframe.index
+                if index in invalid_rows
+            ]
         )
 
-        if result.failed == 0:
+        created = self.save(
+            valid_dataframe,
+            source_file=Path(filename).name,
+        )
 
-            self.save(dataframe)
-
-        return result
+        return CNCImportResult(
+            total=len(dataframe),
+            valid=len(dataframe) - len(errors),
+            invalid=len(errors),
+            created=created,
+            updated=0,
+            skipped=0,
+            errors=errors,
+        )
 
     # ==========================================================
     # Information

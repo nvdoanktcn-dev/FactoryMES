@@ -14,15 +14,21 @@ class ProductionOrderFactory:
 
         order = ProductionOrder(
 
-            order_no=code,
+            work_order_no=code,
 
             product_code="P001",
 
-            planned_qty=100,
+            operation_no=10,
+
+            operation_name="Test Operation",
+
+            process_type="CNC",
+
+            plan_qty=100,
 
             completed_qty=0,
 
-            status="DRAFT",
+            status="PLANNED",
 
         )
 
