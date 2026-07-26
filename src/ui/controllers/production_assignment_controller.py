@@ -22,17 +22,35 @@ class ProductionAssignmentController:
     def load_assignments(self):
         try:
             assignments = self.service.get_all_assignments()
+            production_order_ids = {
+                assignment.production_order_id
+                for assignment in assignments
+                if assignment.production_order_id is not None
+            }
+            production_orders = {}
+
+            if production_order_ids:
+                production_orders = {
+                    order.id: order
+                    for order in (
+                        self.service.require_session()
+                        .query(ProductionOrder)
+                        .filter(
+                            ProductionOrder.id.in_(
+                                production_order_ids
+                            )
+                        )
+                        .all()
+                    )
+                }
+
             keyword = self.page.search_box.text().strip().lower()
             status = self.page.status_filter.currentText().strip().upper()
             rows = []
 
             for assignment in assignments:
-                production_order = (
-                    self.service.session.query(ProductionOrder)
-                    .filter(
-                        ProductionOrder.id == assignment.production_order_id
-                    )
-                    .first()
+                production_order = production_orders.get(
+                    assignment.production_order_id
                 )
 
                 searchable = " ".join(
@@ -78,25 +96,26 @@ class ProductionAssignmentController:
             return rows
 
         except Exception as error:
+            self._rollback_safely()
             self.page.show_error(error)
             return []
 
     def add_assignment(self):
-        dialog = ProductionAssignmentDialog(
-            parent=self.page,
-            session=self.service.session,
-        )
-
-        if dialog.exec() != QDialog.Accepted:
-            return None
-
         try:
+            dialog = ProductionAssignmentDialog(
+                parent=self.page,
+                session=self.service.require_session(),
+            )
+
+            if dialog.exec() != QDialog.Accepted:
+                return None
+
             assignment = self.service.create_assignment(dialog.get_data())
-            self.service.commit()
+            self.service.commit_changes()
             self.load_assignments()
             return assignment
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(error)
             return None
 
@@ -111,25 +130,25 @@ class ProductionAssignmentController:
             )
             return None
 
-        dialog = ProductionAssignmentDialog(
-            parent=self.page,
-            assignment=assignment,
-            session=self.service.session,
-        )
-
-        if dialog.exec() != QDialog.Accepted:
-            return None
-
         try:
+            dialog = ProductionAssignmentDialog(
+                parent=self.page,
+                assignment=assignment,
+                session=self.service.require_session(),
+            )
+
+            if dialog.exec() != QDialog.Accepted:
+                return None
+
             updated = self.service.update_assignment(
                 assignment.id,
                 dialog.get_data(),
             )
-            self.service.commit()
+            self.service.commit_changes()
             self.load_assignments()
             return updated
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(error)
             return None
 
@@ -177,16 +196,22 @@ class ProductionAssignmentController:
 
         try:
             result = method(assignment.id)
-            self.service.commit()
+            self.service.commit_changes()
             self.load_assignments()
             return result
         except Exception as error:
-            self.service.rollback()
+            self._rollback_safely()
             self.page.show_error(error)
             return None
 
     def close(self):
         self.service.close()
+
+    def _rollback_safely(self):
+        try:
+            self.service.rollback_changes()
+        except Exception:
+            pass
 
     def show_selected_history(self):
         assignment = (
@@ -202,14 +227,15 @@ class ProductionAssignmentController:
             )
             return None
 
-        dialog = ProductionAssignmentHistoryDialog(
-            parent=self.page,
-            assignment=assignment,
-            session=self.service.session,
-        )
-
-        dialog.exec()
-
-        return dialog
-
-
+        try:
+            dialog = ProductionAssignmentHistoryDialog(
+                parent=self.page,
+                assignment=assignment,
+                session=self.service.require_session(),
+            )
+            dialog.exec()
+            return dialog
+        except Exception as error:
+            self._rollback_safely()
+            self.page.show_error(error)
+            return None
