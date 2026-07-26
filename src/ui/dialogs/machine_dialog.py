@@ -1,3 +1,5 @@
+import re
+
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -25,7 +27,6 @@ class MachineDialog(QDialog):
 
     STATUSES = [
         "RUNNING",
-        "ACTIVE",
         "MAINTENANCE",
         "STOPPED",
         "INACTIVE",
@@ -68,6 +69,9 @@ class MachineDialog(QDialog):
         )
 
         self.build_ui()
+        self.machine_code.textChanged.connect(
+            self.sync_machine_type_from_code
+        )
 
         if self.machine is not None:
             self.load_machine()
@@ -205,7 +209,131 @@ class MachineDialog(QDialog):
             self.machine_name.setFocus()
             return
 
+        machine_type = (
+            self.machine_type
+            .currentText()
+            .strip()
+            .upper()
+        )
+
+        validation_error = (
+            self.validate_code_and_type(
+                machine_code,
+                machine_type,
+            )
+        )
+
+        if validation_error:
+            QMessageBox.warning(
+                self,
+                "Validation",
+                validation_error,
+            )
+            self.machine_code.setFocus()
+            return
+
         self.accept()
+
+    def sync_machine_type_from_code(
+        self,
+        value,
+    ):
+        if self.machine is not None:
+            return
+
+        code = str(value or "").strip().upper()
+
+        if code.startswith("BL"):
+            self.set_combo_value(
+                self.machine_type,
+                "CNC",
+            )
+        elif (
+            code.startswith("BR")
+            or code.startswith("ASK")
+        ):
+            self.set_combo_value(
+                self.machine_type,
+                "ROBOT",
+            )
+
+    @staticmethod
+    def validate_code_and_type(
+        machine_code,
+        machine_type,
+    ):
+        code = str(
+            machine_code or ""
+        ).strip().upper()
+        normalized_type = str(
+            machine_type or ""
+        ).strip().upper()
+
+        br_match = re.fullmatch(
+            r"BR(\d{2})",
+            code,
+        )
+        is_valid_br = (
+            br_match is not None
+            and 1 <= int(br_match.group(1)) <= 11
+        )
+        is_valid_ask = (
+            re.fullmatch(r"ASK\d+", code)
+            is not None
+        )
+        is_valid_brask = (
+            re.fullmatch(
+                r"BRASK[A-Z0-9-]+",
+                code,
+            )
+            is not None
+        )
+
+        if normalized_type == "CNC":
+            if not code.startswith("BL"):
+                return (
+                    "CNC Machine Code must start with BL."
+                )
+
+        if normalized_type == "ROBOT":
+            if not (
+                is_valid_br
+                or is_valid_ask
+                or is_valid_brask
+            ):
+                return (
+                    "ROBOT Machine Code must be "
+                    "BR01-BR11, ASK followed by digits, "
+                    "or start with BRASK."
+                )
+
+        if code.startswith("BL") and normalized_type != "CNC":
+            return (
+                "BL Machine Code requires Machine Type CNC."
+            )
+
+        if (
+            code.startswith("BR")
+            or code.startswith("ASK")
+        ):
+            if normalized_type != "ROBOT":
+                return (
+                    "BR/ASK/BRASK Machine Code requires "
+                    "Machine Type ROBOT."
+                )
+
+            if not (
+                is_valid_br
+                or is_valid_ask
+                or is_valid_brask
+            ):
+                return (
+                    "Robot code must be BR01-BR11 "
+                    "ASK followed by digits, "
+                    "or start with BRASK."
+                )
+
+        return None
 
     def get_data(self):
         return {

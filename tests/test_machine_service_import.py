@@ -12,7 +12,9 @@ class TestMachineServiceImport(BaseDatabaseTest):
     def setUp(self):
         super().setUp()
 
-        self.machine_code = f"TEST-BL-{uuid.uuid4().hex[:8].upper()}"
+        self.machine_code = (
+            f"BLTEST{uuid.uuid4().hex[:8].upper()}"
+        )
 
         self.service = MachineService(
             session=self.session,
@@ -60,3 +62,97 @@ class TestMachineServiceImport(BaseDatabaseTest):
         )
 
         self.assertIsNone(saved_machine)
+
+    def test_valid_machine_code_conventions(self):
+        valid_cases = [
+            (
+                f"BL{uuid.uuid4().hex[:8].upper()}",
+                "CNC",
+            ),
+            (
+                "BR01",
+                "ROBOT",
+            ),
+            (
+                f"ASK{int(uuid.uuid4().hex[:6], 16)}",
+                "ROBOT",
+            ),
+            (
+                f"BRASK{uuid.uuid4().hex[:6].upper()}",
+                "ROBOT",
+            ),
+        ]
+
+        for machine_code, machine_type in valid_cases:
+            with self.subTest(
+                machine_code=machine_code,
+                machine_type=machine_type,
+            ):
+                machine = self.service.create_machine(
+                    {
+                        "machine_code": machine_code,
+                        "machine_name": (
+                            f"Test {machine_type} Machine"
+                        ),
+                        "machine_type": machine_type,
+                        "status": "RUNNING",
+                    }
+                )
+
+                self.assertEqual(
+                    machine.machine_code,
+                    machine_code,
+                )
+                self.assertEqual(
+                    machine.machine_type,
+                    machine_type,
+                )
+
+        self.session.rollback()
+
+    def test_invalid_machine_code_conventions(self):
+        invalid_cases = [
+            (
+                "CNC-001",
+                "CNC",
+            ),
+            (
+                "BL01",
+                "ROBOT",
+            ),
+            (
+                "BR01",
+                "CNC",
+            ),
+            (
+                "BR12",
+                "ROBOT",
+            ),
+            (
+                "ASK",
+                "ROBOT",
+            ),
+            (
+                "ASK-A",
+                "ROBOT",
+            ),
+            (
+                "BRASK",
+                "ROBOT",
+            ),
+        ]
+
+        for machine_code, machine_type in invalid_cases:
+            with self.subTest(
+                machine_code=machine_code,
+                machine_type=machine_type,
+            ):
+                with self.assertRaises(ValueError):
+                    self.service.create_machine(
+                        {
+                            "machine_code": machine_code,
+                            "machine_name": "Invalid Machine",
+                            "machine_type": machine_type,
+                            "status": "RUNNING",
+                        }
+                    )

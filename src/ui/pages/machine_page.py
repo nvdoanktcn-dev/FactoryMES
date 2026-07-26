@@ -158,43 +158,51 @@ class MachinePage(MasterCRUDPage):
         và MachineService nhận keyword arguments.
         """
         try:
-            return self.service.create_machine(
-                data
-            )
+            try:
+                result = self.service.create_machine(
+                    data
+                )
 
-        except TypeError:
-            return self.service.create_machine(
-                machine_code=data.get(
-                    "machine_code",
-                    "",
-                ),
-                machine_name=data.get(
-                    "machine_name",
-                    "",
-                ),
-                machine_type=data.get(
-                    "machine_type",
-                ),
-                line=data.get(
-                    "line",
-                ),
-                location=data.get(
-                    "location",
-                ),
-                brand=data.get(
-                    "brand",
-                ),
-                model=data.get(
-                    "model",
-                ),
-                serial_number=data.get(
-                    "serial_number",
-                ),
-                status=data.get(
-                    "status",
-                    "ACTIVE",
-                ),
-            )
+            except TypeError:
+                result = self.service.create_machine(
+                    machine_code=data.get(
+                        "machine_code",
+                        "",
+                    ),
+                    machine_name=data.get(
+                        "machine_name",
+                        "",
+                    ),
+                    machine_type=data.get(
+                        "machine_type",
+                    ),
+                    line=data.get(
+                        "line",
+                    ),
+                    location=data.get(
+                        "location",
+                    ),
+                    brand=data.get(
+                        "brand",
+                    ),
+                    model=data.get(
+                        "model",
+                    ),
+                    serial_number=data.get(
+                        "serial_number",
+                    ),
+                    status=data.get(
+                        "status",
+                        "RUNNING",
+                    ),
+                )
+
+            self._commit_changes()
+            return result
+
+        except Exception:
+            self._rollback_changes()
+            raise
 
     def update_record(
         self,
@@ -205,15 +213,27 @@ class MachinePage(MasterCRUDPage):
             self.service,
             "update_machine",
         ):
-            return self.service.update_machine(
+            try:
+                result = self.service.update_machine(
+                    record_key,
+                    data,
+                )
+                self._commit_changes()
+                return result
+            except Exception:
+                self._rollback_changes()
+                raise
+
+        try:
+            result = self.service.update(
                 record_key,
                 data,
             )
-
-        return self.service.update(
-            record_key,
-            data,
-        )
+            self._commit_changes()
+            return result
+        except Exception:
+            self._rollback_changes()
+            raise
 
     def delete_record(
         self,
@@ -223,13 +243,132 @@ class MachinePage(MasterCRUDPage):
             self.service,
             "delete_machine",
         ):
-            return self.service.delete_machine(
+            try:
+                result = self.service.delete_machine(
+                    record_key
+                )
+                self._commit_changes()
+                return result
+            except Exception:
+                self._rollback_changes()
+                raise
+
+        try:
+            result = self.service.delete(
                 record_key
             )
+            self._commit_changes()
+            return result
+        except Exception:
+            self._rollback_changes()
+            raise
 
-        return self.service.delete(
-            record_key
+    def add_context_actions(self, menu):
+        machine = self.get_selected_record()
+
+        if machine is None:
+            return {}
+
+        status = str(
+            machine.status or ""
+        ).strip().upper()
+
+        if status != "INACTIVE":
+            return {}
+
+        action_activate = menu.addAction(
+            "Activate Machine"
         )
+
+        return {
+            action_activate: self.handle_activate
+        }
+
+    def handle_activate(self):
+        machine = self.get_selected_record()
+
+        if machine is None:
+            return
+
+        confirmed = self.confirm(
+            "Activate Machine",
+            (
+                "Activate Machine:\n\n"
+                f"{machine.machine_code}?"
+            ),
+        )
+
+        if not confirmed:
+            return
+
+        try:
+            activate_method = getattr(
+                self.service,
+                "activate_machine",
+                None,
+            )
+
+            if callable(activate_method):
+                activate_method(
+                    machine.machine_code
+                )
+            else:
+                self.service.update_machine(
+                    machine.machine_code,
+                    {
+                        **{
+                            "machine_code":
+                                machine.machine_code,
+                            "machine_name":
+                                machine.machine_name,
+                            "machine_type":
+                                machine.machine_type,
+                            "line": machine.line,
+                            "location":
+                                machine.location,
+                            "brand": machine.brand,
+                            "model": machine.model,
+                            "serial_number":
+                                machine.serial_number,
+                        },
+                        "status": "RUNNING",
+                    },
+                )
+
+            self._commit_changes()
+            self.refresh_table()
+
+            self.show_info(
+                "Success",
+                "Machine activated successfully.",
+            )
+
+        except Exception as error:
+            self._rollback_changes()
+            self.show_error(
+                "Activate Machine Error",
+                str(error),
+            )
+
+    def _commit_changes(self):
+        commit_method = getattr(
+            self.service,
+            "commit_changes",
+            None,
+        )
+
+        if callable(commit_method):
+            commit_method()
+
+    def _rollback_changes(self):
+        rollback_method = getattr(
+            self.service,
+            "rollback_changes",
+            None,
+        )
+
+        if callable(rollback_method):
+            rollback_method()
 
     # ==========================================================
     # Summary
