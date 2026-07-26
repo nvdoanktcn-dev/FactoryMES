@@ -23,46 +23,46 @@ class TestCommitOnClose(DatabaseTestCase):
     """
 
     def test_employee_persists_after_service_closed(self):
-        """
-        Dùng EmployeeService() không truyền session (giống hệt cách
-        UI thực tế khởi tạo service) để xác nhận việc commit-on-close
-        hoạt động xuyên suốt qua engine mặc định của ứng dụng, không
-        chỉ trong self.session của DatabaseTestCase. Dọn dẹp bản ghi
-        test ngay sau khi xác nhận để test có thể chạy lại nhiều lần.
-        """
         import uuid
+        from unittest.mock import patch
 
+        from src.database.testing import TestingSessionLocal
         from src.models.employee import Employee
         from src.services.employee_service import EmployeeService
 
         code = f"SMOKE_EMP_{uuid.uuid4().hex[:8].upper()}"
 
-        service = EmployeeService()
-        service.create_employee(
-            {
-                "employee_code": code,
-                "employee_name": "Smoke Test",
-            }
-        )
-        service.close()
+        # Service vẫn được tạo không truyền session, nhưng session tự sở hữu
+        # được chuyển sang test database thay vì database thật của ứng dụng.
+        with patch(
+        "src.services.base_service.get_session",
+        side_effect=TestingSessionLocal,
+        ):
+            service = EmployeeService()
+            service.create_employee(
+                {
+                    "employee_code": code,
+                    "employee_name": "Smoke Test",
+                }
+            )
+            service.close()
 
-        verify_service = EmployeeService()
-        try:
-            record = verify_service.get_employee(code)
-            self.assertIsNotNone(record)
-        finally:
+            verify_service = EmployeeService()
             try:
-                verify_service.repository.session.query(
-                    Employee
-                ).filter_by(
-                    employee_code=code
-                ).delete(
-                    synchronize_session=False
-                )
-                verify_service.repository.session.commit()
+                record = verify_service.get_employee(code)
+                self.assertIsNotNone(record)
             finally:
-                verify_service.close()
-
+                try:
+                    verify_service.repository.session.query(
+                        Employee
+                    ).filter_by(
+                        employee_code=code
+                    ).delete(
+                        synchronize_session=False
+                    )
+                    verify_service.repository.session.commit()
+                finally:
+                    verify_service.close()
 
 class TestCNCMachineService(DatabaseTestCase):
     def test_create_update_delete(self):
