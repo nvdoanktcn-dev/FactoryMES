@@ -19,7 +19,7 @@ from src.services.machine_service import MachineService
 
 
 class ProductionAssignmentDialog(QDialog):
-    SHIFTS = ["", "DAY", "NIGHT", "OFFICE", "ROTATING"]
+    SHIFTS = ["", "DAY", "NIGHT"]
 
     def __init__(
         self,

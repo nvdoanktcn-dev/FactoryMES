@@ -146,6 +146,9 @@ class ProductionAssignmentPage(QWidget):
         self.btn_cancel.clicked.connect(self.controller.cancel_selected)
         self.btn_refresh.clicked.connect(self.controller.load_assignments)
         self.table.doubleClicked.connect(self.controller.edit_selected)
+        self.table.itemSelectionChanged.connect(
+            self._update_action_state
+        )
         self.btn_history.clicked.connect(
             self.controller.show_selected_history
         )
@@ -168,6 +171,8 @@ class ProductionAssignmentPage(QWidget):
             self.btn_refresh,
         ):
             button.setMinimumHeight(32)
+
+        self._update_action_state()
 
     def set_assignments(self, rows):
         self._row_objects = [assignment for assignment, _ in rows]
@@ -202,6 +207,7 @@ class ProductionAssignmentPage(QWidget):
                 self.table.setItem(row_index, column_index, item)
 
         self.table.resizeRowsToContents()
+        self._update_action_state()
 
     def selected_assignment(self):
         selected_rows = self.table.selectionModel().selectedRows()
@@ -216,6 +222,36 @@ class ProductionAssignmentPage(QWidget):
 
     def set_status_message(self, message):
         self.status_label.setText(str(message or ""))
+
+    def _update_action_state(self):
+        assignment = self.selected_assignment()
+        status = (
+            str(assignment.status or "").strip().upper()
+            if assignment is not None
+            else ""
+        )
+
+        self.btn_edit.setEnabled(
+            status in {"DRAFT", "ON_HOLD"}
+        )
+        self.btn_history.setEnabled(
+            assignment is not None
+        )
+        self.btn_release.setEnabled(
+            status in {"DRAFT", "ON_HOLD"}
+        )
+        self.btn_start.setEnabled(
+            status == "RELEASED"
+        )
+        self.btn_hold.setEnabled(
+            status == "IN_PROGRESS"
+        )
+        self.btn_complete.setEnabled(
+            status in {"IN_PROGRESS", "ON_HOLD"}
+        )
+        self.btn_cancel.setEnabled(
+            status in {"DRAFT", "RELEASED", "ON_HOLD"}
+        )
 
     def show_error(self, error):
         message = str(error)

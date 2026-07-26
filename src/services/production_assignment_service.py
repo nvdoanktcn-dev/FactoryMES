@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from src.database.session import get_session
-from src.framework.base_service import BaseService
 from src.framework.exception import (
     NotFoundError,
 )
@@ -28,10 +26,11 @@ from src.services.production_assignment_history_service import (
 from src.services.resource_conflict_service import (
     ResourceConflictService,
 )
+from src.services.base_service import SessionOwnedService
 
 
 class ProductionAssignmentService(
-    BaseService
+    SessionOwnedService
 ):
     STATUS_DRAFT = "DRAFT"
     STATUS_RELEASED = "RELEASED"
@@ -49,17 +48,16 @@ class ProductionAssignmentService(
         STATUS_CANCELLED,
     }
 
+    VALID_SHIFTS = {
+        "DAY",
+        "NIGHT",
+    }
+
     def __init__(
         self,
         session=None,
     ):
-        super().__init__()
-
-        self._owns_session = (
-            session is None
-        )
-
-        self.session = session if session is not None else get_session()
+        super().__init__(session=session)
 
         self.repository = ProductionAssignmentRepository(self.session)
 
@@ -155,6 +153,10 @@ class ProductionAssignmentService(
         self._validate_assignment(
             normalized,
             production_order,
+        )
+
+        self._validate_time_conflicts(
+            normalized,
         )
 
         assignment = ProductionAssignment(
@@ -293,6 +295,11 @@ class ProductionAssignmentService(
             production_order,
         )
 
+        self._validate_time_conflicts(
+            normalized,
+            exclude_assignment_id=assignment.id,
+        )
+
         assignment.machine_code = normalized[
             "machine_code"
         ]
@@ -348,6 +355,16 @@ class ProductionAssignmentService(
                 code
             )
 
+        self._validate_time_conflicts(
+            {
+                "machine_code": code or None,
+                "employee_code": assignment.employee_code,
+                "planned_start": assignment.planned_start,
+                "planned_finish": assignment.planned_finish,
+            },
+            exclude_assignment_id=assignment.id,
+        )
+
         assignment.machine_code = (
             code or None
         )
@@ -384,6 +401,16 @@ class ProductionAssignmentService(
                 code
             )
 
+        self._validate_time_conflicts(
+            {
+                "machine_code": assignment.machine_code,
+                "employee_code": code or None,
+                "planned_start": assignment.planned_start,
+                "planned_finish": assignment.planned_finish,
+            },
+            exclude_assignment_id=assignment.id,
+        )
+
         # Không kiểm tra CNC/ROBOT hoặc ca cố định.
         assignment.employee_code = (
             code or None
@@ -412,12 +439,11 @@ class ProductionAssignmentService(
             assignment
         )
 
-        assignment.shift = (
-            self._normalize_upper(
-                shift
-            )
-            or None
+        normalized_shift = self._normalize_shift(
+            shift
         )
+
+        assignment.shift = normalized_shift
 
         self.repository.update()
 
@@ -484,6 +510,11 @@ class ProductionAssignmentService(
                     "before release."
                 )
             )
+
+        self._validate_resources(
+            machine_code=assignment.machine_code,
+            employee_code=assignment.employee_code,
+        )
 
         self.conflict_service.validate_release(
             assignment
@@ -614,16 +645,26 @@ class ProductionAssignmentService(
                 )
             )
 
-        assignment.status = (
-            self.STATUS_COMPLETED
-        )
-
-        assignment.actual_finish = (
+        normalized_finish = (
             self._normalize_datetime(
                 actual_finish
             )
             or datetime.now()
         )
+
+        if (
+            assignment.actual_start is not None
+            and normalized_finish
+            < assignment.actual_start
+        ):
+            raise ValueError(
+                "Actual Finish cannot be before Actual Start."
+            )
+
+        assignment.status = (
+            self.STATUS_COMPLETED
+        )
+        assignment.actual_finish = normalized_finish
 
         self.repository.update()
 
@@ -650,6 +691,7 @@ class ProductionAssignmentService(
         if assignment.status in {
             self.STATUS_IN_PROGRESS,
             self.STATUS_COMPLETED,
+            self.STATUS_CANCELLED,
         }:
             raise ValueError(
                 (
@@ -710,14 +752,16 @@ class ProductionAssignmentService(
     # ==========================================================
 
     def commit(self):
-        self.session.commit()
+        self.require_session().commit()
 
     def rollback(self):
-        self.session.rollback()
+        self.require_session().rollback()
 
-    def close(self):
-        if self._owns_session:
-            self.session.close()
+    def commit_changes(self):
+        self.commit()
+
+    def rollback_changes(self):
+        self.rollback()
 
     # ==========================================================
     # Validation
@@ -922,6 +966,18 @@ class ProductionAssignmentService(
                 )
             )
 
+        if (
+            data["shift"] is not None
+            and data["shift"] not in cls.VALID_SHIFTS
+        ):
+            raise ValueError(
+                (
+                    "Invalid Assignment Shift: "
+                    f"{data['shift']}. "
+                    "Allowed values: DAY, NIGHT."
+                )
+            )
+
         del production_order
 
     def _validate_time_conflicts(
@@ -1039,7 +1095,7 @@ class ProductionAssignmentService(
                 )
             ),
             "shift": (
-                cls._clean_optional_upper(
+                cls._normalize_shift(
                     data.get(
                         "shift"
                     )
@@ -1148,6 +1204,29 @@ class ProductionAssignmentService(
         ).strip().upper()
 
         return text or None
+
+    @classmethod
+    def _normalize_shift(
+        cls,
+        value,
+    ):
+        shift = cls._clean_optional_upper(
+            value
+        )
+
+        if shift is None:
+            return None
+
+        if shift not in cls.VALID_SHIFTS:
+            raise ValueError(
+                (
+                    "Invalid Assignment Shift: "
+                    f"{shift}. "
+                    "Allowed values: DAY, NIGHT."
+                )
+            )
+
+        return shift
 
     @staticmethod
     def _clean_optional_text(
