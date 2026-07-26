@@ -1,12 +1,15 @@
 from datetime import date, datetime, time, timedelta
+from math import isfinite
 
-from src.database.session import get_session
+from sqlalchemy.orm import Session
+
+from src.services.base_service import SessionOwnedService
 from src.repository.production_log_repository import (
     ProductionLogRepository,
 )
 
 
-class ProductionHistoryService:
+class ProductionHistoryService(SessionOwnedService):
     """
     Service đọc và tổng hợp lịch sử sản xuất.
 
@@ -23,11 +26,14 @@ class ProductionHistoryService:
     - Tổng hợp theo Machine, Employee, Product, Work Order
     """
 
-    def __init__(self, session=None):
-        self.session = session or get_session()
+    def __init__(
+        self,
+        session: Session | None = None,
+    ) -> None:
+        super().__init__(session=session)
 
         self.repository = ProductionLogRepository(
-            self.session
+            self.require_session()
         )
 
     # ==========================================================
@@ -178,8 +184,20 @@ class ProductionHistoryService:
     # Summary
     # ==========================================================
 
-    def build_summary(self, records):
+    def build_summary(
+        self,
+        records,
+        *,
+        final_output_only=False,
+    ):
         records = list(records or [])
+        output_records = (
+            self.select_final_operation_records(
+                records
+            )
+            if final_output_only
+            else records
+        )
 
         runtime_sec = sum(
             self._to_float(
@@ -211,7 +229,7 @@ class ProductionHistoryService:
                     0,
                 )
             )
-            for record in records
+            for record in output_records
         )
 
         ng_qty = sum(
@@ -222,7 +240,7 @@ class ProductionHistoryService:
                     0,
                 )
             )
-            for record in records
+            for record in output_records
         )
 
         total_qty = ok_qty + ng_qty
@@ -319,6 +337,154 @@ class ProductionHistoryService:
             ),
         }
 
+    def build_final_output_summary(
+        self,
+        records,
+    ):
+        return self.build_summary(
+            records,
+            final_output_only=True,
+        )
+
+    def select_final_operation_records(
+        self,
+        records,
+    ):
+        grouped = {}
+
+        for record in records or []:
+            status = self._normalize_code(
+                getattr(
+                    record,
+                    "status",
+                    "",
+                )
+            )
+            if status == "CANCELLED":
+                continue
+
+            routing_status = self._normalize_code(
+                getattr(
+                    record,
+                    "routing_status",
+                    "",
+                )
+            )
+            if routing_status == "INACTIVE":
+                continue
+
+            group_key = (
+                self._normalize_code(
+                    getattr(
+                        record,
+                        "work_order_no",
+                        "",
+                    )
+                ),
+                self._normalize_code(
+                    getattr(
+                        record,
+                        "product_code",
+                        "",
+                    )
+                ),
+            )
+            grouped.setdefault(
+                group_key,
+                [],
+            ).append(record)
+
+        selected = []
+
+        for group_records in grouped.values():
+            explicit_final = [
+                record
+                for record in group_records
+                if self._to_bool(
+                    getattr(
+                        record,
+                        "is_final_operation",
+                        getattr(
+                            record,
+                            "is_final_op",
+                            False,
+                        ),
+                    )
+                )
+            ]
+            if explicit_final:
+                selected.extend(
+                    record
+                    for record in explicit_final
+                    if self._normalize_code(
+                        getattr(
+                            record,
+                            "status",
+                            "",
+                        )
+                    )
+                    != "RUNNING"
+                )
+                continue
+
+            records_with_op = [
+                (
+                    self._op_number(
+                        getattr(
+                            record,
+                            "op_no",
+                            getattr(
+                                record,
+                                "operation_no",
+                                None,
+                            ),
+                        )
+                    ),
+                    record,
+                )
+                for record in group_records
+            ]
+            records_with_op = [
+                item
+                for item in records_with_op
+                if item[0] is not None
+            ]
+
+            if not records_with_op:
+                selected.extend(
+                    record
+                    for record in group_records
+                    if self._normalize_code(
+                        getattr(
+                            record,
+                            "status",
+                            "",
+                        )
+                    )
+                    != "RUNNING"
+                )
+                continue
+
+            highest_op = max(
+                op_number
+                for op_number, _ in records_with_op
+            )
+            selected.extend(
+                record
+                for op_number, record in records_with_op
+                if op_number == highest_op
+                and self._normalize_code(
+                    getattr(
+                        record,
+                        "status",
+                        "",
+                    )
+                )
+                != "RUNNING"
+            )
+
+        return selected
+
     # ==========================================================
     # Grouping
     # ==========================================================
@@ -363,6 +529,7 @@ class ProductionHistoryService:
                     )
                 ),
             key_name="product_code",
+            final_output_only=True,
         )
 
     def group_by_work_order(self, records):
@@ -377,6 +544,7 @@ class ProductionHistoryService:
                     )
                 ),
             key_name="work_order_no",
+            final_output_only=True,
         )
 
     def group_by_date(self, records):
@@ -580,6 +748,7 @@ class ProductionHistoryService:
         records,
         key_getter,
         key_name,
+        final_output_only=False,
     ):
         grouped = {}
 
@@ -598,7 +767,10 @@ class ProductionHistoryService:
 
         for group_key, group_records in grouped.items():
             summary = self.build_summary(
-                group_records
+                group_records,
+                final_output_only=(
+                    final_output_only
+                ),
             )
 
             summary[key_name] = group_key
@@ -788,21 +960,49 @@ class ProductionHistoryService:
         except (
             TypeError,
             ValueError,
+            OverflowError,
         ):
             return 0
 
     @staticmethod
     def _to_float(value):
         try:
-            return float(
+            number = float(
                 value or 0
             )
+            return number if isfinite(number) else 0.0
 
         except (
             TypeError,
             ValueError,
+            OverflowError,
         ):
             return 0.0
+
+    @staticmethod
+    def _op_number(value):
+        text = str(
+            value or ""
+        ).strip().upper()
+        digits = "".join(
+            character
+            for character in text
+            if character.isdigit()
+        )
+        return int(digits) if digits else None
+
+    @staticmethod
+    def _to_bool(value):
+        if isinstance(value, bool):
+            return value
+        return str(
+            value or ""
+        ).strip().upper() in {
+            "1",
+            "TRUE",
+            "YES",
+            "Y",
+        }
 
     @staticmethod
     def _datetime_sort_value(value):
