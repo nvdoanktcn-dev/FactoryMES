@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from math import inf, nan
 
 from src.ui.widgets.top_machine_widget import MachineRow, TopMachineWidget
 from tests.helpers.qt_test_helper import get_test_app
@@ -143,6 +144,41 @@ class TestTopMachineWidget(unittest.TestCase):
         self.widget.set_data([])
 
         self.assertEqual(self.widget.table.rowCount(), 0)
+
+    def test_none_clears_existing_data(self) -> None:
+        self.widget.set_data(self.sample_rows())
+
+        self.widget.set_data(None)
+
+        self.assertEqual(self.widget.table.rowCount(), 0)
+
+    def test_non_finite_values_are_rendered_as_zero(self) -> None:
+        self.widget.set_data([
+            MachineRow(
+                machine="MC01",
+                oee=nan,
+                runtime=inf,
+                ng_qty=inf,
+            )
+        ])
+
+        self.assertEqual(self.widget.table.item(0, 2).text(), "0.00")
+        self.assertEqual(self.widget.table.item(0, 3).text(), "0.00")
+        self.assertEqual(self.widget.table.item(0, 6).text(), "0")
+
+    def test_equal_values_share_competition_rank(self) -> None:
+        self.widget.set_data([
+            MachineRow(machine="MC01", oee=90),
+            MachineRow(machine="MC02", oee=90),
+            MachineRow(machine="MC03", oee=80),
+        ])
+
+        ranks = [
+            self.widget.table.item(index, 0).text()
+            for index in range(3)
+        ]
+
+        self.assertEqual(ranks, ["1", "1", "3"])
 
     def test_oee_color_green(self) -> None:
         color = self.widget._oee_color(90)

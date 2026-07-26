@@ -17,6 +17,14 @@ class ProgressRow:
     completed_qty: int
 
 
+@dataclass(slots=True)
+class SlottedProgressRow:
+    work_order: str
+    product: str
+    planned_qty: int
+    completed_qty: int
+
+
 class TestProgressService(unittest.TestCase):
     def setUp(self) -> None:
         self.service = ProgressService()
@@ -253,6 +261,20 @@ class TestProgressService(unittest.TestCase):
             item.completed_qty,
             150,
         )
+
+    def test_supports_slotted_dataclass_rows(self) -> None:
+        item = self.service.build_one(
+            SlottedProgressRow(
+                work_order="WO003B",
+                product="P003B",
+                planned_qty=200,
+                completed_qty=125,
+            )
+        )
+
+        self.assertEqual(item.work_order, "WO003B")
+        self.assertEqual(item.product, "P003B")
+        self.assertEqual(item.completed_qty, 125)
 
     def test_missing_work_order_is_skipped(
         self,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from math import isfinite
 from typing import Any, Iterable
 
 from PySide6.QtCore import Qt
@@ -144,7 +145,10 @@ class TopMachineWidget(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def set_data(self, rows: Iterable[Any]) -> None:
+    def set_data(
+        self,
+        rows: Iterable[Any] | None,
+    ) -> None:
         """
         Nhận dữ liệu từ OEEDashboardController.
 
@@ -156,7 +160,7 @@ class TopMachineWidget(QWidget):
 
         self._rows.clear()
 
-        for row in rows:
+        for row in rows or ():
             self._rows.append(self._convert_row(row))
 
         self.refresh()
@@ -174,8 +178,23 @@ class TopMachineWidget(QWidget):
 
         self.table.setRowCount(limit)
 
-        for rank, row in enumerate(rows[:limit], start=1):
-            self._populate_row(rank - 1, rank, row)
+        previous_value = None
+        display_rank = 0
+
+        for index, row in enumerate(rows[:limit], start=1):
+            current_value = self._sort_value(row)
+            if (
+                previous_value is None
+                or current_value != previous_value
+            ):
+                display_rank = index
+                previous_value = current_value
+
+            self._populate_row(
+                index - 1,
+                display_rank,
+                row,
+            )
 
         while self.table.rowCount() > limit:
             self.table.removeRow(limit)
@@ -226,6 +245,24 @@ class TopMachineWidget(QWidget):
 
         return rows
 
+    def _sort_value(self, row: MachineRow) -> float:
+        field = self.cbo_sort.currentText()
+        value_map = {
+            SortField.OEE.value: row.oee,
+            SortField.AVAILABILITY.value:
+                row.availability,
+            SortField.PERFORMANCE.value:
+                row.performance,
+            SortField.QUALITY.value: row.quality,
+            SortField.RUNTIME.value: row.runtime,
+            SortField.DOWNTIME.value: row.downtime,
+            SortField.OK_QTY.value: row.ok_qty,
+            SortField.NG_QTY.value: row.ng_qty,
+        }
+        return self._safe_float(
+            value_map.get(field, row.oee)
+        )
+
     # ------------------------------------------------------------------
     # Data conversion
     # ------------------------------------------------------------------
@@ -233,35 +270,49 @@ class TopMachineWidget(QWidget):
     def _convert_row(self, row: Any) -> MachineRow:
 
         if isinstance(row, MachineRow):
-            return row
+            return MachineRow(
+                machine=str(row.machine).strip(),
+                oee=self._safe_float(row.oee),
+                availability=self._safe_float(
+                    row.availability
+                ),
+                performance=self._safe_float(
+                    row.performance
+                ),
+                quality=self._safe_float(row.quality),
+                runtime=self._safe_float(row.runtime),
+                downtime=self._safe_float(row.downtime),
+                ok_qty=self._safe_int(row.ok_qty),
+                ng_qty=self._safe_int(row.ng_qty),
+            )
 
         if isinstance(row, dict):
             return MachineRow(
                 machine=str(
                     row.get("machine", "")
                 ),
-                oee=float(
+                oee=self._safe_float(
                     row.get("oee", 0)
                 ),
-                availability=float(
+                availability=self._safe_float(
                     row.get("availability", 0)
                 ),
-                performance=float(
+                performance=self._safe_float(
                     row.get("performance", 0)
                 ),
-                quality=float(
+                quality=self._safe_float(
                     row.get("quality", 0)
                 ),
-                runtime=float(
+                runtime=self._safe_float(
                     row.get("runtime", 0)
                 ),
-                downtime=float(
+                downtime=self._safe_float(
                     row.get("downtime", 0)
                 ),
-                ok_qty=int(
+                ok_qty=self._safe_int(
                     row.get("ok_qty", 0)
                 ),
-                ng_qty=int(
+                ng_qty=self._safe_int(
                     row.get("ng_qty", 0)
                 ),
             )
@@ -270,31 +321,51 @@ class TopMachineWidget(QWidget):
             machine=str(
                 getattr(row, "machine", "")
             ),
-            oee=float(
+            oee=self._safe_float(
                 getattr(row, "oee", 0)
             ),
-            availability=float(
+            availability=self._safe_float(
                 getattr(row, "availability", 0)
             ),
-            performance=float(
+            performance=self._safe_float(
                 getattr(row, "performance", 0)
             ),
-            quality=float(
+            quality=self._safe_float(
                 getattr(row, "quality", 0)
             ),
-            runtime=float(
+            runtime=self._safe_float(
                 getattr(row, "runtime", 0)
             ),
-            downtime=float(
+            downtime=self._safe_float(
                 getattr(row, "downtime", 0)
             ),
-            ok_qty=int(
+            ok_qty=self._safe_int(
                 getattr(row, "ok_qty", 0)
             ),
-            ng_qty=int(
+            ng_qty=self._safe_int(
                 getattr(row, "ng_qty", 0)
             ),
         )
+
+    @staticmethod
+    def _safe_float(value: Any) -> float:
+        if isinstance(value, str):
+            value = (
+                value.strip()
+                .replace(",", "")
+                .replace("%", "")
+            )
+
+        try:
+            number = float(value or 0)
+        except (TypeError, ValueError, OverflowError):
+            return 0.0
+
+        return number if isfinite(number) else 0.0
+
+    @classmethod
+    def _safe_int(cls, value: Any) -> int:
+        return int(cls._safe_float(value))
 
     # ------------------------------------------------------------------
     # Table rendering

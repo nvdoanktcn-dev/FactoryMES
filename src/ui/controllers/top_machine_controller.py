@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from math import isfinite
 from typing import Any
 
 from src.ui.controllers.oee_dashboard_controller import (
@@ -137,7 +138,21 @@ class TopMachineController:
         row: Any,
     ) -> MachineRow:
         if isinstance(row, MachineRow):
-            return row
+            return MachineRow(
+                machine=self._to_text(row.machine),
+                oee=self._to_float(row.oee),
+                availability=self._to_float(
+                    row.availability
+                ),
+                performance=self._to_float(
+                    row.performance
+                ),
+                quality=self._to_float(row.quality),
+                runtime=self._to_float(row.runtime),
+                downtime=self._to_float(row.downtime),
+                ok_qty=self._to_int(row.ok_qty),
+                ng_qty=self._to_int(row.ng_qty),
+            )
 
         if isinstance(row, Mapping):
             return self._from_mapping(row)
@@ -353,9 +368,11 @@ class TopMachineController:
             value = cleaned
 
         try:
-            return float(value)
-        except (TypeError, ValueError):
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
             return 0.0
+
+        return number if isfinite(number) else 0.0
 
     @staticmethod
     def _to_int(
@@ -376,6 +393,9 @@ class TopMachineController:
             value = cleaned
 
         try:
-            return int(float(value))
-        except (TypeError, ValueError):
+            number = float(value)
+            if not isfinite(number):
+                return 0
+            return int(number)
+        except (TypeError, ValueError, OverflowError):
             return 0

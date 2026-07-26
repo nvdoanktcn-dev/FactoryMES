@@ -169,6 +169,35 @@ class TestTopMachineController(unittest.TestCase):
         self.assertEqual(row.runtime, 0.0)
         self.assertEqual(row.ok_qty, 0)
 
+    def test_non_finite_values_become_zero(self) -> None:
+        row = self.controller.set_machine_data([{
+            "machine": "BL11",
+            "oee": float("nan"),
+            "runtime": float("inf"),
+            "ok_qty": float("-inf"),
+        }])[0]
+
+        self.assertEqual(row.oee, 0.0)
+        self.assertEqual(row.runtime, 0.0)
+        self.assertEqual(row.ok_qty, 0)
+
+    def test_machine_row_is_normalized(self) -> None:
+        source = MachineRow(
+            machine=" BL12 ",
+            oee=float("nan"),
+            runtime=float("inf"),
+            ok_qty=100,
+        )
+
+        row = self.controller.set_machine_data(
+            [source]
+        )[0]
+
+        self.assertEqual(row.machine, "BL12")
+        self.assertEqual(row.oee, 0.0)
+        self.assertEqual(row.runtime, 0.0)
+        self.assertEqual(row.ok_qty, 100)
+
     def test_refresh_restores_controller_rows_to_widget(self) -> None:
         self.controller.set_machine_data([
             MachineRow(machine="BL01", oee=90.0),

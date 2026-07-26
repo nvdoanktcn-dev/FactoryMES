@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from datetime import date, datetime
 from enum import StrEnum
 from math import isfinite
@@ -357,6 +357,9 @@ class ProgressService:
     ) -> Mapping[str, Any]:
         if isinstance(value, Mapping):
             return value
+
+        if is_dataclass(value):
+            return asdict(value)
 
         if hasattr(value, "__dict__"):
             return vars(value)
