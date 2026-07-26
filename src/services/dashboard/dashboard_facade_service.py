@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy.orm import Session
+
+from src.services.base_service import SessionOwnedService
+
 from src.services.dashboard.dashboard_cache import (
     DashboardCache,
 )
@@ -33,7 +37,7 @@ logger = get_logger(
     __name__
 )
 
-class DashboardFacadeService:
+class DashboardFacadeService(SessionOwnedService):
     """
     Dashboard Facade Service
 
@@ -57,6 +61,7 @@ class DashboardFacadeService:
 
     def __init__(
         self,
+        session: Session | None = None,
         analytics_service: Optional[
             ManufacturingAnalyticsService
         ] = None,
@@ -70,9 +75,17 @@ class DashboardFacadeService:
             DashboardCache
         ] = None,
     ):
+        super().__init__(session=session)
+
+        self._owns_analytics_service = (
+            analytics_service is None
+        )
         self.analytics_service = (
-            analytics_service
-            or ManufacturingAnalyticsService()
+            ManufacturingAnalyticsService(
+                session=self.require_session()
+            )
+            if analytics_service is None
+            else analytics_service
         )
 
         self.chart_service = (
@@ -91,6 +104,25 @@ class DashboardFacadeService:
                 ttl_seconds=self.DEFAULT_CACHE_SECONDS
             )
         )
+
+    def close(self) -> None:
+        """
+        Đóng các dependency do Facade sở hữu và cuối cùng
+        đóng session nếu Facade là nơi đã tạo session.
+        """
+        analytics_close = getattr(
+            self.analytics_service,
+            "close",
+            None,
+        )
+
+        if (
+            self._owns_analytics_service
+            and callable(analytics_close)
+        ):
+            analytics_close()
+
+        super().close()
 
     # ==========================================================
     # Public API
