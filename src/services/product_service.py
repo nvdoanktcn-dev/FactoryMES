@@ -1,4 +1,6 @@
-from src.database.session import get_session
+from sqlalchemy.orm import Session
+
+from src.services.base_service import SessionOwnedService
 from src.framework.constants import (
     STATUS_ACTIVE,
     STATUS_INACTIVE,
@@ -13,26 +15,40 @@ from src.repository.product_repository import ProductRepository
 from src.utils.logger import get_logger
 
 
-class ProductService:
-    """
-    Nghiệp vụ Product Master.
-
-    Các API cũ được giữ nguyên để tương thích với UI.
-    Hàm save_product() được bổ sung cho Master Import.
-    """
-
-    def __init__(self, session=None, repository=None):
-        self.logger = get_logger("ProductService")
+class ProductService(SessionOwnedService):
+    def __init__(
+        self,
+        session: Session | None = None,
+        repository: ProductRepository | None = None,
+    ) -> None:
+        self.logger = get_logger(
+            "ProductService"
+        )
 
         if repository is not None:
-            # Compatibility mode: dùng repository được truyền từ bên ngoài
-            self.repository = repository
-            self.session = getattr(repository, "session", None)
+            repository_session = getattr(
+                repository,
+                "session",
+                None,
+            )
+
+            super().__init__(
+                session=repository_session,
+            )
+
+            # Repository được truyền từ ngoài,
+            # ProductService không sở hữu session này.
             self._owns_session = False
-        else:
-            self._owns_session = session is None
-            self.session = session or get_session()
-            self.repository = ProductRepository(self.session)
+            self.repository = repository
+            return
+
+        super().__init__(
+            session=session,
+        )
+
+        self.repository = ProductRepository(
+            self.require_session()
+        )
 
     # ==========================================================
     # Query
@@ -212,18 +228,49 @@ class ProductService:
     # ==========================================================
 
     def delete_product(self, product_code):
-        product_code = self._normalize_code(product_code)
-        product = self.repository.get_by_code(product_code)
+        return self.set_product_status(
+            product_code,
+            STATUS_INACTIVE,
+        )
+
+    def set_product_status(
+        self,
+        product_code,
+        status,
+    ):
+        product_code = self._normalize_code(
+            product_code
+        )
+        product = self.repository.get_by_code(
+            product_code
+        )
 
         if product is None:
             raise NotFoundError(f"Product not found: {product_code}")
 
-        # Soft delete
-        product.status = STATUS_INACTIVE
-        self.logger.warning(f"Inactive Product: {product_code}")
+        normalized_status = self._normalize_status(
+            status
+        )
+        product.status = normalized_status
+
+        self.logger.info(
+            (
+                f"Set Product Status: "
+                f"{product_code} -> {normalized_status}"
+            )
+        )
         self.repository.update()
 
         return product
+
+    def commit_changes(self) -> None:
+        self.require_session().commit()
+
+    def rollback_changes(self) -> None:
+        session = self.require_session()
+
+        if session.is_active:
+            session.rollback()
 
     # ==========================================================
     # Validation and normalization
@@ -260,12 +307,3 @@ class ProductService:
             raise ValueError(f"Invalid Product Status: {status}")
         return status
 
-    def commit(self):
-        self.session.commit()
-
-    def rollback(self):
-        self.session.rollback()
-
-    def close(self):
-        if self._owns_session:
-            self.session.close()

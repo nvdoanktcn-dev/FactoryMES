@@ -16,7 +16,11 @@ class Product(Base):
     status = Column(String(20), default="ACTIVE")
 
     created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(
+        DateTime,
+        default=datetime.now,
+        onupdate=datetime.now,
+    )
 
     @property
     def product_name(self):

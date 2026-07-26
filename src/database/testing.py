@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
@@ -8,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 from src.database.base import Base
+import src.models
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -35,6 +38,24 @@ TestingSessionLocal = sessionmaker(
 )
 
 
+def import_all_models() -> None:
+    """
+    Import every model module before create_all().
+
+    SQLAlchemy only adds a mapped table to Base.metadata after the
+    module declaring that model has been imported. Discovering the
+    modules here also keeps the test schema synchronized when a new
+    model is added later.
+    """
+    model_prefix = f"{src.models.__name__}."
+
+    for module_info in pkgutil.walk_packages(
+        src.models.__path__,
+        prefix=model_prefix,
+    ):
+        importlib.import_module(module_info.name)
+
+
 @event.listens_for(engine, "connect")
 def configure_test_sqlite_connection(
     dbapi_connection,
@@ -55,6 +76,8 @@ def configure_test_sqlite_connection(
 
 def create_test_database() -> None:
     engine.dispose()
+
+    import_all_models()
 
     Base.metadata.create_all(
         bind=engine

@@ -1,4 +1,5 @@
 import re
+from datetime import date, datetime
 
 import pandas as pd
 
@@ -199,13 +200,49 @@ class DataCleaner:
         if "Ngày" not in df.columns:
             return df
 
-        df["Ngày"] = pd.to_datetime(
-            df["Ngày"],
-            errors="coerce",
-            dayfirst=True
+        df["Ngày"] = df["Ngày"].map(
+            DataCleaner.normalize_date_value
         )
 
         return df
+
+    @staticmethod
+    def normalize_date_value(value):
+        """
+        Normalize Excel dates without confusing ISO and Vietnamese dates.
+
+        Supported inputs include datetime/date/Timestamp objects, Excel
+        serial-day numbers, ISO strings (YYYY-MM-DD), and day-first
+        strings commonly used in Vietnam (DD/MM/YYYY).
+        """
+        if pd.isna(value):
+            return pd.NaT
+
+        if isinstance(value, pd.Timestamp):
+            return value
+
+        if isinstance(value, (datetime, date)):
+            return pd.Timestamp(value)
+
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return pd.to_datetime(
+                value,
+                unit="D",
+                origin="1899-12-30",
+                errors="coerce",
+            )
+
+        text = str(value).strip()
+
+        if not text or text.lower() in {"nan", "none", "nat"}:
+            return pd.NaT
+
+        return pd.to_datetime(
+            text,
+            format="mixed",
+            errors="coerce",
+            dayfirst=True,
+        )
 
     def clean_numeric_columns(self, df):
         for column in self.NUMERIC_COLUMNS:
