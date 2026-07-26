@@ -14,6 +14,16 @@ class RoutingController:
     def load_routings(self):
         try:
             routings = self.service.get_all_routings()
+            capacity_method = getattr(
+                self.service,
+                "build_capacity_profile",
+                None,
+            )
+            capacity_profile = (
+                capacity_method(routings)
+                if callable(capacity_method)
+                else {}
+            )
             keyword = self.page.search_box.text().strip().lower()
             process_type = self.page.process_filter.currentText().strip().upper()
             status = self.page.status_filter.currentText().strip().upper()
@@ -38,7 +48,10 @@ class RoutingController:
                 filtered.append(routing)
 
             filtered.sort(key=lambda item: (str(item.product_code or ""), int(item.operation_no or 0)))
-            self.page.set_routings(filtered)
+            self.page.set_routings(
+                filtered,
+                capacity_profile=capacity_profile,
+            )
             self.page.set_status_message(f"{len(filtered)} routing record(s).")
             return filtered
         except Exception as error:
@@ -89,10 +102,29 @@ class RoutingController:
             QMessageBox.warning(self.page, "Routing", "Please select one routing record.")
             return None
 
+        current_status = str(
+            routing.status or ""
+        ).strip().upper()
+        activate = current_status == "INACTIVE"
+        target_status = (
+            "ACTIVE"
+            if activate
+            else "INACTIVE"
+        )
+        action_text = (
+            "Activate"
+            if activate
+            else "Set Inactive"
+        )
+
         answer = QMessageBox.question(
             self.page,
-            "Confirm Inactive",
-            f"Set {routing.product_code} / OP{routing.operation_no} to INACTIVE?",
+            f"Confirm {action_text}",
+            (
+                f"Set {routing.product_code} / "
+                f"OP{routing.operation_no} "
+                f"to {target_status}?"
+            ),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -100,7 +132,11 @@ class RoutingController:
             return None
 
         try:
-            result = self.service.delete_routing(routing.product_code, routing.operation_no)
+            result = self.service.set_routing_status(
+                routing.product_code,
+                routing.operation_no,
+                target_status,
+            )
             self.service.commit()
             self.load_routings()
             return result
@@ -108,6 +144,20 @@ class RoutingController:
             self.service.rollback()
             self.page.show_error(error)
             return None
+
+    def update_status_action(self):
+        routing = self.page.selected_routing()
+        text = "Set Inactive"
+
+        if (
+            routing is not None
+            and str(
+                routing.status or ""
+            ).strip().upper() == "INACTIVE"
+        ):
+            text = "Activate"
+
+        self.page.btn_inactive.setText(text)
 
     def close(self):
         self.service.close()

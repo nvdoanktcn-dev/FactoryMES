@@ -14,7 +14,8 @@ class RoutingPage(QWidget):
     HEADERS = [
         "Product Code", "OP", "Operation Name", "Process Type",
         "Machine Type", "Cycle Time (Sec)", "Output (PCS/H)",
-        "Operators", "Status", "Remark",
+        "Operators", "Required Machines", "Final OP",
+        "Status", "Remark",
     ]
 
     def __init__(self, parent=None):
@@ -94,6 +95,9 @@ class RoutingPage(QWidget):
         self.btn_inactive.clicked.connect(self.controller.inactivate_selected_routing)
         self.btn_refresh.clicked.connect(self.controller.load_routings)
         self.table.doubleClicked.connect(self.controller.edit_selected_routing)
+        self.table.itemSelectionChanged.connect(
+            self.controller.update_status_action
+        )
 
     def _apply_style(self):
         self.title_label.setStyleSheet("font-size:24px;font-weight:bold;color:#263238;")
@@ -101,11 +105,27 @@ class RoutingPage(QWidget):
         for button in (self.btn_add, self.btn_edit, self.btn_inactive, self.btn_refresh):
             button.setMinimumHeight(32)
 
-    def set_routings(self, routings):
+    def set_routings(
+        self,
+        routings,
+        capacity_profile=None,
+    ):
         self._row_objects = list(routings or [])
+        capacity_profile = dict(
+            capacity_profile or {}
+        )
         self.table.setRowCount(len(self._row_objects))
 
         for row_index, routing in enumerate(self._row_objects):
+            profile = capacity_profile.get(
+                (
+                    str(
+                        routing.product_code or ""
+                    ).strip().upper(),
+                    int(routing.operation_no or 0),
+                ),
+                {},
+            )
             values = [
                 routing.product_code,
                 f"OP{routing.operation_no}",
@@ -115,17 +135,37 @@ class RoutingPage(QWidget):
                 self._format_number(routing.standard_cycle_time_sec),
                 self._format_number(routing.standard_output_pcs_hour),
                 self._format_number(routing.standard_operator_count),
+                profile.get(
+                    "required_machine_count",
+                    "",
+                ),
+                (
+                    "YES"
+                    if profile.get(
+                        "is_final_operation"
+                    )
+                    else ""
+                ),
                 routing.status,
                 routing.remark,
             ]
 
             for column_index, value in enumerate(values):
                 item = QTableWidgetItem("" if value is None else str(value))
-                if column_index in {1, 5, 6, 7}:
+                if column_index in {
+                    1,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                }:
                     item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_index, column_index, item)
 
         self.table.resizeRowsToContents()
+        self.controller.update_status_action()
 
     def selected_routing(self):
         selected_rows = self.table.selectionModel().selectedRows()

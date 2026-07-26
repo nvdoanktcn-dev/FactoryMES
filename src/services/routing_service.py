@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
+from math import ceil
 
-from src.database.session import get_session
-from src.framework.base_service import BaseService
 from src.framework.exception import (
     DuplicateError,
     NotFoundError,
@@ -13,9 +13,14 @@ from src.models.routing import Routing
 from src.repository.routing_repository import (
     RoutingRepository,
 )
+from src.repository.product_repository import (
+    ProductRepository,
+)
+from src.services.base_service import SessionOwnedService
+from sqlalchemy.orm import Session
 
 
-class RoutingService(BaseService):
+class RoutingService(SessionOwnedService):
     STATUS_ACTIVE = "ACTIVE"
     STATUS_INACTIVE = "INACTIVE"
 
@@ -34,21 +39,35 @@ class RoutingService(BaseService):
 
     def __init__(
         self,
-        session=None,
+        session: Session | None = None,
+        repository: RoutingRepository | None = None,
     ):
-        super().__init__()
+        if repository is not None:
+            repository_session = getattr(
+                repository,
+                "session",
+                None,
+            )
+            super().__init__(
+                session=repository_session,
+            )
+            self._owns_session = False
+            self.repository = repository
+            self.product_repository = (
+                ProductRepository(
+                    self.require_session()
+                )
+            )
+            return
 
-        self._owns_session = (
-            session is None
+        super().__init__(
+            session=session,
         )
-
-        self.session = (
-            session
-            or get_session()
-        )
-
         self.repository = RoutingRepository(
-            self.session
+            self.require_session()
+        )
+        self.product_repository = ProductRepository(
+            self.require_session()
         )
 
     # ==========================================================
@@ -105,6 +124,86 @@ class RoutingService(BaseService):
             product_code
         )
 
+    def build_capacity_profile(
+        self,
+        routings,
+    ):
+        """
+        Return calculated capacity information without changing schema.
+
+        The first ACTIVE operation of each product is the reference.
+        Later operations require ceil(cycle/reference_cycle) machines.
+        The highest ACTIVE operation number is the final operation.
+        """
+        grouped = defaultdict(list)
+
+        for routing in routings or []:
+            if str(
+                routing.status or ""
+            ).strip().upper() != self.STATUS_ACTIVE:
+                continue
+
+            grouped[
+                self._normalize_code(
+                    routing.product_code
+                )
+            ].append(routing)
+
+        profile = {}
+
+        for product_code, operations in grouped.items():
+            operations.sort(
+                key=lambda item: int(
+                    item.operation_no or 0
+                )
+            )
+
+            if not operations:
+                continue
+
+            reference_cycle = float(
+                operations[
+                    0
+                ].standard_cycle_time_sec
+                or 0
+            )
+
+            if reference_cycle <= 0:
+                continue
+
+            final_operation_no = int(
+                operations[-1].operation_no
+            )
+
+            for routing in operations:
+                cycle_time = float(
+                    routing.standard_cycle_time_sec
+                    or 0
+                )
+                required_machines = max(
+                    1,
+                    ceil(
+                        cycle_time
+                        / reference_cycle
+                    ),
+                )
+                key = (
+                    product_code,
+                    int(routing.operation_no),
+                )
+                profile[key] = {
+                    "reference_cycle_time_sec":
+                        reference_cycle,
+                    "required_machine_count":
+                        required_machines,
+                    "is_final_operation": (
+                        int(routing.operation_no)
+                        == final_operation_no
+                    ),
+                }
+
+        return profile
+
     def get_by_import_key(
         self,
         entity_key,
@@ -147,6 +246,9 @@ class RoutingService(BaseService):
 
         self._validate_routing(
             normalized
+        )
+        self._validate_product_exists(
+            normalized["product_code"]
         )
 
         product_code = normalized[
@@ -242,6 +344,9 @@ class RoutingService(BaseService):
 
         self._validate_routing(
             normalized
+        )
+        self._validate_product_exists(
+            normalized["product_code"]
         )
 
         routing.operation_name = normalized[
@@ -359,8 +464,45 @@ class RoutingService(BaseService):
                 )
             )
 
-        routing.status = self.STATUS_INACTIVE
+        return self.set_routing_status(
+            product_code,
+            operation_no,
+            self.STATUS_INACTIVE,
+        )
 
+    def activate_routing(
+        self,
+        product_code,
+        operation_no,
+    ):
+        return self.set_routing_status(
+            product_code,
+            operation_no,
+            self.STATUS_ACTIVE,
+        )
+
+    def set_routing_status(
+        self,
+        product_code,
+        operation_no,
+        status,
+    ):
+        routing = self.get_routing(
+            product_code,
+            operation_no,
+        )
+
+        if routing is None:
+            raise NotFoundError(
+                (
+                    "Routing not found: "
+                    f"{product_code} / {operation_no}"
+                )
+            )
+
+        routing.status = self._normalize_status(
+            status
+        )
         self.repository.update()
 
         return routing
@@ -370,14 +512,13 @@ class RoutingService(BaseService):
     # ==========================================================
 
     def commit(self):
-        self.session.commit()
+        self.require_session().commit()
 
     def rollback(self):
-        self.session.rollback()
+        session = self.require_session()
 
-    def close(self):
-        if self._owns_session:
-            self.session.close()
+        if session.is_active:
+            session.rollback()
 
     # ==========================================================
     # Validation
@@ -441,6 +582,37 @@ class RoutingService(BaseService):
                 )
             )
 
+        process_type = data["process_type"]
+        machine_type = data["machine_type"]
+
+        if (
+            process_type in {"CNC", "ROBOT"}
+            and machine_type != process_type
+        ):
+            raise ValueError(
+                (
+                    f"{process_type} process requires "
+                    f"Machine Type {process_type}."
+                )
+            )
+
+    def _validate_product_exists(
+        self,
+        product_code,
+    ):
+        if (
+            self.product_repository.get_by_code(
+                product_code
+            )
+            is None
+        ):
+            raise ValueError(
+                (
+                    "Product does not exist: "
+                    f"{product_code}"
+                )
+            )
+
     # ==========================================================
     # Normalization
     # ==========================================================
@@ -461,20 +633,24 @@ class RoutingService(BaseService):
             default=0.0,
         )
 
-        standard_output = cls._to_float(
-            data.get(
-                "standard_output_pcs_hour"
-            ),
-            default=0.0,
-        )
+        standard_output = 0.0
 
-        if (
-            standard_output <= 0
-            and cycle_time > 0
-        ):
+        if cycle_time > 0:
             standard_output = (
                 3600.0 / cycle_time
             )
+
+        process_type = cls._normalize_process_type(
+            data.get(
+                "process_type"
+            )
+        )
+        machine_type = cls._normalize_machine_type(
+            data.get(
+                "machine_type"
+            ),
+            process_type=process_type,
+        )
 
         return {
             "product_code": cls._normalize_code(
@@ -494,16 +670,8 @@ class RoutingService(BaseService):
                     "operation_name"
                 )
             ),
-            "process_type": cls._normalize_process_type(
-                data.get(
-                    "process_type"
-                )
-            ),
-            "machine_type": cls._clean_optional_text(
-                data.get(
-                    "machine_type"
-                )
-            ),
+            "process_type": process_type,
+            "machine_type": machine_type,
             "standard_cycle_time_sec": (
                 cycle_time
             ),
@@ -629,6 +797,24 @@ class RoutingService(BaseService):
             )
 
         return status
+
+    @staticmethod
+    def _normalize_machine_type(
+        value,
+        *,
+        process_type,
+    ):
+        machine_type = str(
+            value or ""
+        ).strip().upper()
+
+        if (
+            not machine_type
+            and process_type in {"CNC", "ROBOT"}
+        ):
+            return process_type
+
+        return machine_type or None
 
     @staticmethod
     def _clean_text(

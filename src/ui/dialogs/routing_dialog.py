@@ -20,7 +20,7 @@ class RoutingDialog(QDialog):
         self.product_code_edit = QLineEdit(self)
         self.operation_no_spin = QSpinBox(self)
         self.operation_no_spin.setRange(1, 999999)
-        self.operation_no_spin.setSingleStep(10)
+        self.operation_no_spin.setSingleStep(1)
         self.operation_name_edit = QLineEdit(self)
 
         self.process_type_combo = QComboBox(self)
@@ -34,6 +34,7 @@ class RoutingDialog(QDialog):
         self.output_spin = QDoubleSpinBox(self)
         self.output_spin.setRange(0.0, 999999999.0)
         self.output_spin.setDecimals(4)
+        self.output_spin.setReadOnly(True)
 
         self.operator_count_spin = QDoubleSpinBox(self)
         self.operator_count_spin.setRange(0.000001, 9999.0)
@@ -68,12 +69,21 @@ class RoutingDialog(QDialog):
 
         self.button_box.accepted.connect(self._accept_if_valid)
         self.button_box.rejected.connect(self.reject)
+        self.process_type_combo.currentTextChanged.connect(
+            self._sync_machine_type
+        )
+        self.cycle_time_spin.valueChanged.connect(
+            self._update_standard_output
+        )
         self._load_routing()
 
     def _load_routing(self):
         if self.routing is None:
-            self.operation_no_spin.setValue(10)
+            self.operation_no_spin.setValue(1)
             self.cycle_time_spin.setValue(1.0)
+            self._sync_machine_type(
+                self.process_type_combo.currentText()
+            )
             return
 
         self.product_code_edit.setText(str(self.routing.product_code or ""))
@@ -82,13 +92,49 @@ class RoutingDialog(QDialog):
         self.process_type_combo.setCurrentText(str(self.routing.process_type or "CNC").upper())
         self.machine_type_edit.setText(str(self.routing.machine_type or ""))
         self.cycle_time_spin.setValue(float(self.routing.standard_cycle_time_sec or 0.000001))
-        self.output_spin.setValue(float(self.routing.standard_output_pcs_hour or 0.0))
+        self._update_standard_output(
+            self.cycle_time_spin.value()
+        )
         self.operator_count_spin.setValue(float(self.routing.standard_operator_count or 1.0))
         self.status_combo.setCurrentText(str(self.routing.status or "ACTIVE").upper())
         self.remark_edit.setPlainText(str(self.routing.remark or ""))
 
         self.product_code_edit.setReadOnly(True)
         self.operation_no_spin.setEnabled(False)
+
+    def _sync_machine_type(
+        self,
+        process_type,
+    ):
+        normalized = str(
+            process_type or ""
+        ).strip().upper()
+
+        if normalized in {"CNC", "ROBOT"}:
+            self.machine_type_edit.setText(
+                normalized
+            )
+            self.machine_type_edit.setReadOnly(
+                True
+            )
+        else:
+            self.machine_type_edit.setReadOnly(
+                False
+            )
+
+    def _update_standard_output(
+        self,
+        cycle_time,
+    ):
+        cycle_time = float(
+            cycle_time or 0
+        )
+        output = (
+            3600.0 / cycle_time
+            if cycle_time > 0
+            else 0.0
+        )
+        self.output_spin.setValue(output)
 
     def _accept_if_valid(self):
         if not self.product_code_edit.text().strip():
