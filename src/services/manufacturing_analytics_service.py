@@ -27,7 +27,14 @@ class ManufacturingAnalyticsService:
         session=None,
         history_service=None,
     ):
-        self.session = session or get_session()
+        self._owns_session = (
+            session is None
+        )
+
+        self.session = (
+            session
+            or get_session()
+        )
 
         self.history_service = (
             history_service
@@ -1040,12 +1047,16 @@ class ManufacturingAnalyticsService:
     # ==========================================================
 
     def _load_work_order_master(self):
+        service = None
+
         try:
             from src.services.work_order_service import (
                 WorkOrderService,
             )
 
-            service = WorkOrderService()
+            service = WorkOrderService(
+                session=self.session
+            )
 
             if hasattr(
                 service,
@@ -1081,6 +1092,29 @@ class ManufacturingAnalyticsService:
 
         except Exception:
             return {}
+
+        finally:
+            if service is not None:
+                close_method = getattr(
+                    service,
+                    "close",
+                    None,
+                )
+
+                if callable(close_method):
+                    close_method()
+
+    # ==========================================================
+    # Session lifecycle
+    # ==========================================================
+
+    def close(self):
+        """
+        Đóng session chỉ khi service tự tạo session.
+        """
+
+        if self._owns_session:
+            self.session.close()
 
     # ==========================================================
     # Helper calculations

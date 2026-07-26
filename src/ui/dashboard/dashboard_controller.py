@@ -183,6 +183,20 @@ class DashboardController:
         return response
 
     # ======================================================
+    # Lifecycle
+    # ======================================================
+
+    def close(self) -> None:
+        close_method = getattr(
+            self.facade,
+            "close",
+            None,
+        )
+
+        if callable(close_method):
+            close_method()
+
+    # ======================================================
     # Properties
     # ======================================================
 

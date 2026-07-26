@@ -1,6 +1,8 @@
 from datetime import date, datetime
 
-from src.database.session import get_session
+from sqlalchemy.orm import Session
+
+from src.services.base_service import SessionOwnedService
 from src.engine.machine_utilization_engine import (
     MachineUtilizationEngine,
 )
@@ -20,7 +22,7 @@ from src.repository.routing_repository import (
 )
 
 
-class OEEService:
+class OEEService(SessionOwnedService):
     """
     Điều phối việc tính OEE từ dữ liệu thật.
 
@@ -31,15 +33,20 @@ class OEEService:
         -> OEEEngine
     """
 
-    def __init__(self, session=None):
-        self.session = session or get_session()
+    def __init__(
+        self,
+        session: Session | None = None,
+    ) -> None:
+        super().__init__(session=session)
+
+        shared_session = self.require_session()
 
         self.production_repository = (
-            ProductionLogRepository(self.session)
+            ProductionLogRepository(shared_session)
         )
 
         self.routing_repository = RoutingRepository(
-            self.session
+            shared_session
         )
 
         self.utilization_engine = (

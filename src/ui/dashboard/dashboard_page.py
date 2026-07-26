@@ -82,19 +82,32 @@ class DashboardPage(QWidget):
         self.scroll_area = QScrollArea()
         self.content_widget = QWidget()
 
+        self._has_loaded_once = False
+        self._is_refreshing = False
+        self._resources_closed = False
+        
         self._build_ui()
         self._connect_events()
         self._apply_style()
         self._load_lookup_data()
-        self._has_loaded_once = False
-        self.refresh_dashboard()
+
 
     def on_page_activated(self):
         """
-        Được gọi mỗi khi người dùng chuyển sang
-        tab Dashboard, để dữ liệu luôn cập nhật.
+        Được gọi khi Dashboard trở thành page hiện tại.
+
+        Lần đầu mở:
+            Tải dữ liệu Dashboard.
+
+        Những lần quay lại sau:
+            Không tự tải lại để tránh truy vấn không cần thiết.
+            Người dùng có thể bấm Refresh hoặc dùng Auto Refresh.
         """
 
+        if self._has_loaded_once:
+            return
+
+        self._has_loaded_once = True
         self.refresh_dashboard()
 
     # ==========================================================
@@ -277,11 +290,23 @@ class DashboardPage(QWidget):
         self,
         request=None,
     ):
+        """
+        Tải dữ liệu Dashboard.
+
+        Ngăn hai yêu cầu refresh chạy chồng nhau.
+        """
+
+        if self._resources_closed:
+            return None
+
+        if self._is_refreshing:
+            return None
+
+        self._is_refreshing = True
+
         try:
             if request is None:
-                request = (
-                    self.toolbar.get_request()
-                )
+                request = self.toolbar.get_request()
 
             if isinstance(
                 request,
@@ -302,9 +327,13 @@ class DashboardPage(QWidget):
 
             self.set_loading(True)
 
-            return self.controller.refresh(
+            result = self.controller.refresh(
                 request
             )
+
+            self._has_loaded_once = True
+
+            return result
 
         except Exception as error:
             self.handle_refresh_error(
@@ -315,24 +344,33 @@ class DashboardPage(QWidget):
 
         finally:
             self.set_loading(False)
+            self._is_refreshing = False
 
     def refresh_without_cache(self):
         """
-        Bỏ qua cache và tải dữ liệu mới.
+        Bỏ qua cache và tải dữ liệu mới hoàn toàn.
         """
 
-        try:
-            request = (
-                self.toolbar.get_request()
-            )
+        if self._resources_closed:
+            return None
 
-            self.controller.current_request = (
-                request
-            )
+        if self._is_refreshing:
+            return None
+
+        self._is_refreshing = True
+
+        try:
+            request = self.toolbar.get_request()
+
+            self.controller.current_request = request
 
             self.set_loading(True)
 
-            return self.controller.force_refresh()
+            result = self.controller.force_refresh()
+
+            self._has_loaded_once = True
+
+            return result    
 
         except Exception as error:
             self.handle_refresh_error(
@@ -343,6 +381,7 @@ class DashboardPage(QWidget):
 
         finally:
             self.set_loading(False)
+            self._is_refreshing = False
 
     def invalidate_dashboard_cache(self):
         self.controller.invalidate_cache()
@@ -392,6 +431,37 @@ class DashboardPage(QWidget):
         )
 
     # ==========================================================
+    # Lifecycle
+    # ==========================================================
+
+    def close_resources(self):
+        """
+            Đóng controller, facade và SQLAlchemy session đúng một lần.
+        """
+
+        if self._resources_closed:
+            return
+
+        self._resources_closed = True
+
+        close_method = getattr(
+            self.controller,
+            "close",
+            None,
+        )
+
+        if callable(close_method):
+            close_method()
+
+
+    def closeEvent(
+        self,
+        event,
+    ):
+        self.close_resources()
+        super().closeEvent(event)
+
+    # ==========================================================
     # Lookup data
     # ==========================================================
 
@@ -423,7 +493,7 @@ class DashboardPage(QWidget):
         except Exception:
             self.toolbar.set_machines([])
 
-    def _load_work_order_lookup(self):
+    def _load_work_order_lookup(self) -> None:
         try:
             from src.services.work_order_service import (
                 WorkOrderService,
@@ -432,7 +502,7 @@ class DashboardPage(QWidget):
             records = self._load_service_records(
                 service=WorkOrderService(),
                 methods=[
-                    "search",
+                    "search_work_orders",
                     "get_all",
                     "get_all_work_orders",
                 ],
@@ -456,7 +526,7 @@ class DashboardPage(QWidget):
                 methods=[
                     "search_employees",
                     "get_all",
-                    "get_all_employees",
+                    "get_all_employees",    
                 ],
             )
 
@@ -494,29 +564,45 @@ class DashboardPage(QWidget):
         service,
         methods,
     ):
-        for method_name in methods:
-            method = getattr(
+        """
+        Gọi một phương thức đọc dữ liệu phù hợp và luôn đóng service
+        nếu service tự sở hữu SQLAlchemy session.
+        """
+
+        try:
+            for method_name in methods:
+                method = getattr(
+                    service,
+                    method_name,
+                    None,
+                )
+
+                if not callable(method):
+                    continue
+
+                try:
+                    if method_name.startswith(
+                        "search"
+                    ):
+                        records = method("")
+                    else:
+                        records = method()
+
+                    return list(
+                        records or []
+                    )
+
+                except TypeError:
+                    continue
+
+            return []
+
+        finally:
+            close_method = getattr(
                 service,
-                method_name,
+                "close",
                 None,
             )
 
-            if not callable(method):
-                continue
-
-            try:
-                if method_name.startswith(
-                    "search"
-                ):
-                    records = method("")
-                else:
-                    records = method()
-
-                return list(
-                    records or []
-                )
-
-            except TypeError:
-                continue
-
-        return []
+            if callable(close_method):
+                close_method()
