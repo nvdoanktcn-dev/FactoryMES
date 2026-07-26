@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Protocol
+from src.dashboard.dashboard_logger import dashboard_logger
 
 
 class DashboardCacheProtocol(Protocol):
@@ -24,10 +25,10 @@ class DashboardCacheProtocol(Protocol):
     def version(self) -> int:
         ...
 
-    def load(self, filters: Any) -> Any:
+    def load(self, filters):
         ...
 
-    def refresh(self, filters: Any) -> Any:
+    def refresh(self, filters):
         ...
 
     def invalidate(self) -> None:
@@ -122,7 +123,38 @@ class DashboardCoordinator:
         repository lần nữa.
         """
 
-        return self._cache.load(filters)
+        dashboard_logger.info(
+            "Dashboard coordinator load requested",
+            extra={
+                "dashboard_component": "coordinator",
+                "dashboard_operation": "load",
+                "dashboard_cache_version": self.version,
+            },
+        )
+
+        try:
+            result = self._cache.load(filters)
+        except Exception:
+            dashboard_logger.exception(
+                "Dashboard coordinator load failed",
+                extra={
+                    "dashboard_component": "coordinator",
+                    "dashboard_operation": "load",
+                    "dashboard_cache_version": self.version,
+                },
+            )
+            raise
+
+        dashboard_logger.info(
+            "Dashboard coordinator load completed",
+            extra={
+                "dashboard_component": "coordinator",
+                "dashboard_operation": "load",
+                "dashboard_cache_version": self.version,
+            },
+        )
+
+        return result
 
     def refresh(
         self,
@@ -132,14 +164,63 @@ class DashboardCoordinator:
         Luôn tải dữ liệu mới từ repository thông qua cache.
         """
 
-        return self._cache.refresh(filters)
+        dashboard_logger.info(
+            "Dashboard coordinator refresh requested",
+            extra={
+                "dashboard_component": "coordinator",
+                "dashboard_operation": "refresh",
+                "dashboard_cache_version": self.version,
+            },
+        )
+
+        try:
+            result = self._cache.refresh(filters)
+        except Exception:
+            dashboard_logger.exception(
+                "Dashboard coordinator refresh failed",
+                extra={
+                    "dashboard_component": "coordinator",
+                    "dashboard_operation": "refresh",
+                    "dashboard_cache_version": self.version,
+                },
+            )
+            raise
+
+        dashboard_logger.info(
+            "Dashboard coordinator refresh completed",
+            extra={
+                "dashboard_component": "coordinator",
+                "dashboard_operation": "refresh",
+                "dashboard_cache_version": self.version,
+            },
+        )
+
+        return result
 
     def invalidate(self) -> None:
         """
         Xóa snapshot hiện tại nhưng giữ lịch sử version của cache.
         """
 
+        dashboard_logger.info(
+            "Dashboard coordinator invalidate requested",
+            extra={
+                "dashboard_component": "coordinator",
+                "dashboard_operation": "invalidate",
+                "dashboard_cache_version": self.version,
+            },
+        )
+
         self._cache.invalidate()
+
+        dashboard_logger.info(
+            "Dashboard coordinator invalidate completed",
+            extra={
+                "dashboard_component": "coordinator",
+                "dashboard_operation": "invalidate",
+                "dashboard_cache_version": self.version,
+            },
+        )
 
     @staticmethod
     def _validate_cache(
