@@ -11,6 +11,9 @@ from src.repository.finished_inventory_repository import (
     FinishedInventoryRepository,
 )
 from src.services.base_service import SessionOwnedService
+from src.services.finished_inventory_receipt_control_service import (
+    FinishedInventoryReceiptControlService,
+)
 
 
 class FinishedInventoryService(SessionOwnedService):
@@ -22,6 +25,7 @@ class FinishedInventoryService(SessionOwnedService):
         self,
         session: Session | None = None,
         repository: FinishedInventoryRepository | None = None,
+        receipt_control_service=None,
     ) -> None:
         if repository is not None:
             super().__init__(
@@ -29,12 +33,24 @@ class FinishedInventoryService(SessionOwnedService):
             )
             self._owns_session = False
             self.repository = repository
+            self.receipt_control_service = (
+                receipt_control_service
+            )
             return
 
         super().__init__(session=session)
 
         self.repository = FinishedInventoryRepository(
             self.require_session()
+        )
+        self.receipt_control_service = (
+            receipt_control_service
+            or FinishedInventoryReceiptControlService(
+                session=self.require_session(),
+                finished_inventory_repository=(
+                    self.repository
+                ),
+            )
         )
 
     # ==========================================================
@@ -84,6 +100,7 @@ class FinishedInventoryService(SessionOwnedService):
         normalized = self._normalize_data(data)
 
         self._validate(normalized)
+        self._validate_receipt(normalized)
 
         record = FinishedInventory(**normalized)
 
@@ -110,6 +127,10 @@ class FinishedInventoryService(SessionOwnedService):
         normalized = self._normalize_data(data)
 
         self._validate(normalized)
+        self._validate_receipt(
+            normalized,
+            exclude_inventory_id=inventory_id,
+        )
 
         for field, value in normalized.items():
             setattr(record, field, value)
@@ -139,6 +160,47 @@ class FinishedInventoryService(SessionOwnedService):
         )
 
         return self.repository.delete(record)
+
+    def get_receipt_capacity(
+        self,
+        work_order,
+        product_code,
+        *,
+        exclude_inventory_id=None,
+    ):
+        if self.receipt_control_service is None:
+            return None
+        return self.receipt_control_service.get_capacity(
+            work_order,
+            product_code,
+            exclude_inventory_id=exclude_inventory_id,
+        )
+
+    def get_pending_receipts(self):
+        if self.receipt_control_service is None:
+            return []
+        return (
+            self.receipt_control_service
+            .get_pending_receipts()
+        )
+
+    def _validate_receipt(
+        self,
+        data,
+        *,
+        exclude_inventory_id=None,
+    ):
+        if self.receipt_control_service is None:
+            return None
+        return (
+            self.receipt_control_service
+            .validate_receipt(
+                data,
+                exclude_inventory_id=(
+                    exclude_inventory_id
+                ),
+            )
+        )
 
     # ==========================================================
     # Validation and normalization

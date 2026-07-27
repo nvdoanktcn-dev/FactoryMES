@@ -117,6 +117,7 @@ class FinishedInventoryPage(MasterCRUDPage):
         return self.dialog_class(
             parent=parent,
             inventory=record,
+            service=self.service,
         )
 
     def create_record(self, data):
