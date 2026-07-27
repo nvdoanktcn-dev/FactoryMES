@@ -8,6 +8,9 @@ from src.services.manufacturing_analytics_service import (
 from src.services.manufacturing_report_export_service import (
     ManufacturingReportExportService,
 )
+from src.services.detailed_manufacturing_report_export_service import (
+    DetailedManufacturingReportExportService,
+)
 
 
 class ManufacturingReportService:
@@ -17,6 +20,7 @@ class ManufacturingReportService:
         self,
         analytics_service=None,
         export_service=None,
+        detailed_export_service=None,
     ) -> None:
         self._owns_analytics_service = (
             analytics_service is None
@@ -28,6 +32,10 @@ class ManufacturingReportService:
         self.export_service = (
             export_service
             or ManufacturingReportExportService()
+        )
+        self.detailed_export_service = (
+            detailed_export_service
+            or DetailedManufacturingReportExportService()
         )
 
     def build_report(
@@ -61,6 +69,28 @@ class ManufacturingReportService:
         return self.export_service.export(
             report,
             output_path,
+        )
+
+    def export_report_bundle(
+        self,
+        report,
+        output_path,
+    ) -> tuple[Path, Path, Path]:
+        """Export the standard report plus two detailed workbooks."""
+        standard_path = self.export_report(
+            report,
+            output_path,
+        )
+        production_path, work_order_path = (
+            self.detailed_export_service.export(
+                report,
+                standard_path.parent,
+            )
+        )
+        return (
+            standard_path,
+            production_path,
+            work_order_path,
         )
 
     def close(self) -> None:
