@@ -290,6 +290,12 @@ class BaseChart(QFrame):
             message
         )
 
+        self.empty_label.setStyleSheet(
+            "font-size:14px;"
+            "font-weight:normal;"
+            "color:#90A4AE;"
+        )
+
         self.empty_label.setVisible(True)
 
     def show_error_state(
@@ -352,6 +358,18 @@ class BaseChart(QFrame):
             (list, tuple, set, dict),
         ):
             return len(data) == 0
+
+        empty_state = getattr(
+            data,
+            "is_empty",
+            None,
+        )
+
+        if callable(empty_state):
+            empty_state = empty_state()
+
+        if empty_state is not None:
+            return bool(empty_state)
 
         return False
 
