@@ -34,6 +34,7 @@ class ProductionInventoryReconciliationPage(QWidget):
         ("product_code", "Product"),
         ("plan_qty", "Plan"),
         ("completed_qty", "Final OP"),
+        ("ng_qty", "NG"),
         ("inventory_qty", "Inventory"),
         ("pending_inventory_qty", "Pending"),
         ("over_received_qty", "Over"),
