@@ -38,6 +38,10 @@ from src.models.production_downtime import (
     ProductionDowntime,
 )
 from src.models.production_ng import ProductionNG
+from src.models.cnc_machine import CNCMachine
+from src.models.cnc_production_log import CNCProductionLog
+from src.models.robot import Robot
+from src.models.robot_operation_log import RobotOperationLog
 
 __all__ = [
     "Product",
@@ -71,5 +75,8 @@ __all__ = [
     "ProductionExecution",
     "ProductionDowntime",
     "ProductionNG",
-
+    "CNCMachine",
+    "CNCProductionLog",
+    "Robot",
+    "RobotOperationLog",
 ]
