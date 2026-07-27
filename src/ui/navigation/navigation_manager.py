@@ -198,6 +198,9 @@ class NavigationManager:
         from src.ui.pages.inventory_page import (
             InventoryPage,
         )
+        from src.ui.pages.reporting_page import (
+            ReportingPage,
+        )
 
         self.page_factories.clear()
 
@@ -249,6 +252,11 @@ class NavigationManager:
         self.register_factory(
             "Inventory",
             InventoryPage,
+        )
+
+        self.register_factory(
+            "Machine Utilization Report",
+            ReportingPage,
         )
 
         self.register_factory(

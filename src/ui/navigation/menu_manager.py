@@ -118,6 +118,17 @@ class MenuManager:
             "Inventory",
         )
 
+        reports = cls._create_item(
+            "📈 Reports"
+        )
+
+        reports.addChildren([
+            cls._create_item(
+                "Machine Utilization",
+                "Machine Utilization Report",
+            ),
+        ])
+
         system = cls._create_item(
             "⚙ System"
         )
@@ -143,6 +154,9 @@ class MenuManager:
         )
         tree.addTopLevelItem(
             inventory
+        )
+        tree.addTopLevelItem(
+            reports
         )
         tree.addTopLevelItem(
             system
