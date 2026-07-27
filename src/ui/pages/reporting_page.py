@@ -277,10 +277,23 @@ class ReportingPage(QWidget):
             return
 
         try:
-            target = self.service.export_report(
-                self._current_report,
-                file_path,
+            export_bundle = getattr(
+                self.service,
+                "export_report_bundle",
+                None,
             )
+            if callable(export_bundle):
+                targets = export_bundle(
+                    self._current_report,
+                    file_path,
+                )
+            else:
+                targets = (
+                    self.service.export_report(
+                        self._current_report,
+                        file_path,
+                    ),
+                )
         except Exception as error:
             QMessageBox.critical(
                 self,
@@ -292,7 +305,11 @@ class ReportingPage(QWidget):
         QMessageBox.information(
             self,
             "Export Complete",
-            f"Report saved to:\n{target}",
+            "Reports saved to:\n"
+            + "\n".join(
+                str(target)
+                for target in targets
+            ),
         )
 
     def _populate_table(self, rows) -> None:
