@@ -24,6 +24,9 @@ from PySide6.QtWidgets import (
 from src.services.production_inventory_report_service import (
     ProductionInventoryReportService,
 )
+from src.ui.dialogs.production_inventory_reconciliation_detail_dialog import (
+    ProductionInventoryReconciliationDetailDialog,
+)
 
 
 class ProductionInventoryReconciliationPage(QWidget):
@@ -56,6 +59,7 @@ class ProductionInventoryReconciliationPage(QWidget):
             or ProductionInventoryReportService()
         )
         self._current_report = None
+        self._current_rows = []
         self._loaded_once = False
 
         self.period_combo = QComboBox()
@@ -98,6 +102,8 @@ class ProductionInventoryReconciliationPage(QWidget):
         ])
 
         self.load_button = QPushButton("Load Report")
+        self.detail_button = QPushButton("View Detail")
+        self.detail_button.setEnabled(False)
         self.export_button = QPushButton("Export Excel")
         self.export_button.setEnabled(False)
         self.status_label = QLabel(
@@ -117,6 +123,9 @@ class ProductionInventoryReconciliationPage(QWidget):
         )
         self.table.setSelectionBehavior(
             QAbstractItemView.SelectRows
+        )
+        self.table.setSelectionMode(
+            QAbstractItemView.SingleSelection
         )
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(
@@ -158,6 +167,7 @@ class ProductionInventoryReconciliationPage(QWidget):
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.load_button)
+        buttons.addWidget(self.detail_button)
         buttons.addWidget(self.export_button)
         buttons.addStretch()
         buttons.addWidget(self.status_label)
@@ -171,8 +181,17 @@ class ProductionInventoryReconciliationPage(QWidget):
         self.load_button.clicked.connect(
             self.load_report
         )
+        self.detail_button.clicked.connect(
+            self.show_selected_detail
+        )
         self.export_button.clicked.connect(
             self.export_report
+        )
+        self.table.itemSelectionChanged.connect(
+            self._update_detail_state
+        )
+        self.table.cellDoubleClicked.connect(
+            self.show_selected_detail
         )
 
     def _apply_period(
@@ -242,11 +261,16 @@ class ProductionInventoryReconciliationPage(QWidget):
                     status=self._optional_status(),
                 )
             )
-            rows = self._current_report.get(
-                "rows",
-                [],
+            self._current_rows = list(
+                self._current_report.get(
+                    "rows",
+                    [],
+                )
+                or []
             )
-            self._populate_table(rows)
+            self._populate_table(
+                self._current_rows
+            )
             self._loaded_once = True
             self.export_button.setEnabled(True)
             summary = self._current_report.get(
@@ -254,15 +278,19 @@ class ProductionInventoryReconciliationPage(QWidget):
                 {},
             )
             self.status_label.setText(
-                f"{len(rows)} order(s), "
+                f"{len(self._current_rows)} order(s), "
                 f"pending "
                 f"{summary.get('pending_inventory_qty', 0)}, "
                 f"over "
                 f"{summary.get('over_received_qty', 0)}."
             )
+            if self._current_rows:
+                self.table.selectRow(0)
         except Exception as error:
             self._current_report = None
+            self._current_rows = []
             self.export_button.setEnabled(False)
+            self.detail_button.setEnabled(False)
             QMessageBox.critical(
                 self,
                 "Report Error",
@@ -270,6 +298,63 @@ class ProductionInventoryReconciliationPage(QWidget):
             )
         finally:
             self._set_busy(False)
+
+    def selected_row(self):
+        selected = (
+            self.table.selectionModel().selectedRows()
+        )
+        if not selected:
+            return None
+        index = selected[0].row()
+        if 0 <= index < len(self._current_rows):
+            return self._current_rows[index]
+        return None
+
+    def _update_detail_state(self):
+        self.detail_button.setEnabled(
+            self.selected_row() is not None
+        )
+
+    def show_selected_detail(self, *_):
+        selected = self.selected_row()
+        if selected is None:
+            QMessageBox.information(
+                self,
+                "Reconciliation Detail",
+                "Please select a Work Order.",
+            )
+            return
+        try:
+            detail = self.service.build_detail(
+                self._python_date(
+                    self.start_date_edit.date()
+                ),
+                self._python_date(
+                    self.end_date_edit.date()
+                ),
+                work_order_no=selected.get(
+                    "work_order_no"
+                ),
+                product_code=selected.get(
+                    "product_code"
+                ),
+            )
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                "Detail Error",
+                str(error),
+            )
+            return
+
+        dialog = (
+            ProductionInventoryReconciliationDetailDialog(
+                parent=self,
+                detail=detail,
+                service=self.service,
+            )
+        )
+        dialog.exec()
 
     def export_report(self) -> None:
         if self._current_report is None:
@@ -336,6 +421,10 @@ class ProductionInventoryReconciliationPage(QWidget):
             not busy
             and self._current_report is not None
         )
+        if busy:
+            self.detail_button.setEnabled(False)
+        else:
+            self._update_detail_state()
 
     def _optional_status(self):
         value = self.status_combo.currentText()
