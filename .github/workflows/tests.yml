@@ -1,72 +1,54 @@
-name: FactoryMES Tests
+name: Tests
 
 on:
   push:
     branches:
       - main
-      - develop
   pull_request:
     branches:
       - main
-      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  test:
-    name: Python 3.12 Tests
+  pytest:
+    name: Python 3.12 / Windows
     runs-on: windows-latest
+    timeout-minutes: 20
 
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONUTF8: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
 
     steps:
-      - name: Checkout source
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
 
-      - name: Install application dependencies
-        run: pip install -r requirements.txt
+      - name: Verify imports
+        run: |
+          python -c "import pandas, sqlalchemy, PySide6; print('Core imports OK')"
+          python -c "import main; print('Application import OK')"
 
-      - name: Install development dependencies
-        run: pip install -r requirements-dev.txt
-
-      - name: Run tests with coverage
-        run: >
-          coverage run
-          -m unittest discover
-          -s tests
-          -p "test_*.py"
-          -v
-
-      - name: Print coverage report
-        run: coverage report -m
-
-      - name: Generate XML coverage
-        run: coverage xml
-
-      - name: Generate HTML coverage
-        run: coverage html
-
-      - name: Upload HTML coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: factorymes-coverage-html
-          path: htmlcov
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload XML coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: factorymes-coverage-xml
-          path: coverage.xml
-          if-no-files-found: error
-          retention-days: 14
+      - name: Run test suite
+        run: python -m pytest -v --tb=short
