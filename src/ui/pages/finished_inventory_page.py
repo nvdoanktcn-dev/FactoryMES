@@ -1,8 +1,14 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QTableWidgetItem
+from PySide6.QtWidgets import (
+    QPushButton,
+    QTableWidgetItem,
+)
 
 from src.importer.finished_inventory_importer import (
     FinishedInventoryImporter,
+)
+from src.services.finished_inventory_import_history_service import (
+    FinishedInventoryImportHistoryService,
 )
 from src.services.finished_inventory_service import (
     FinishedInventoryService,
@@ -10,14 +16,13 @@ from src.services.finished_inventory_service import (
 from src.ui.dialogs.finished_inventory_dialog import (
     FinishedInventoryDialog,
 )
+from src.ui.dialogs.finished_inventory_import_history_dialog import (
+    FinishedInventoryImportHistoryDialog,
+)
 from src.ui.framework.master_crud_page import MasterCRUDPage
 
 
 class FinishedInventoryPage(MasterCRUDPage):
-    """
-    Tồn kho thành phẩm (FinishedInventory).
-    """
-
     ENTITY_NAME = "Finished Inventory"
 
     HEADERS = [
@@ -33,16 +38,34 @@ class FinishedInventoryPage(MasterCRUDPage):
         self,
         service=None,
         importer=None,
+        history_service=None,
     ):
-        inventory_service = (
-            service
-            or FinishedInventoryService()
+        self._owns_service = service is None
+        service = service or FinishedInventoryService()
+        session = getattr(
+            getattr(service, "repository", None),
+            "session",
+            None,
         )
-
-        inventory_importer = (
+        self._owns_history_service = (
+            history_service is None
+            and session is not None
+        )
+        history_service = (
+            history_service
+            or (
+                FinishedInventoryImportHistoryService(
+                    session=session
+                )
+                if session is not None
+                else None
+            )
+        )
+        importer = (
             importer
             or FinishedInventoryImporter(
-                service=inventory_service
+                service=service,
+                history_service=history_service,
             )
         )
 
@@ -50,16 +73,25 @@ class FinishedInventoryPage(MasterCRUDPage):
             title="📦 Finished Inventory",
             headers=self.HEADERS,
             search_placeholder="Search finished inventory...",
-            service=inventory_service,
-            importer=inventory_importer,
+            service=service,
+            importer=importer,
             dialog_class=FinishedInventoryDialog,
         )
 
-        self.initialize_page()
+        self.history_service = history_service
+        self.history_button = QPushButton(
+            "🕘 Import History"
+        )
+        toolbar_layout = self.toolbar.layout()
+        toolbar_layout.insertWidget(
+            max(0, toolbar_layout.count() - 1),
+            self.history_button,
+        )
+        self.history_button.clicked.connect(
+            self.show_import_history
+        )
 
-    # ==========================================================
-    # Data
-    # ==========================================================
+        self.initialize_page()
 
     def load_records(self, keyword):
         return self.service.search_inventory(keyword)
@@ -81,73 +113,77 @@ class FinishedInventoryPage(MasterCRUDPage):
     def get_record_key(record):
         return record.inventory_id
 
-    # ==========================================================
-    # Dialog
-    # ==========================================================
-
     def create_dialog(self, parent=None, record=None):
-        return self.dialog_class(parent=parent, inventory=record)
-
-    # ==========================================================
-    # CRUD
-    # ==========================================================
+        return self.dialog_class(
+            parent=parent,
+            inventory=record,
+        )
 
     def create_record(self, data):
         return self.service.create_inventory(data)
 
     def update_record(self, record_key, data):
-        return self.service.update_inventory(record_key, data)
+        return self.service.update_inventory(
+            record_key,
+            data,
+        )
 
     def delete_record(self, record_key):
-        return self.service.delete_inventory(record_key)
-
-    # ==========================================================
-    # Summary
-    # ==========================================================
+        return self.service.delete_inventory(
+            record_key
+        )
 
     def update_page_summary(self, records):
         total = len(records)
-
-        total_qty = sum(int(record.qty or 0) for record in records)
-
+        total_qty = sum(
+            int(record.qty or 0)
+            for record in records
+        )
         self.update_summary(total, total, 0)
-
         self.set_status(
             f"Total {self.ENTITY_NAME}: {total} | "
             f"Total Qty: {total_qty}"
         )
 
-    # ==========================================================
-    # Table presentation
-    # ==========================================================
-
-    def create_table_item(self, record, column_index, value):
-        item = QTableWidgetItem(self.display_value(value))
-        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-
+    def create_table_item(
+        self,
+        record,
+        column_index,
+        value,
+    ):
+        del record
+        item = QTableWidgetItem(
+            self.display_value(value)
+        )
+        item.setFlags(
+            item.flags() & ~Qt.ItemIsEditable
+        )
         if column_index in {0, 3}:
             item.setTextAlignment(Qt.AlignCenter)
-
         return item
 
-    # ==========================================================
-    # Validation
-    # ==========================================================
-
-    def validate_dialog_data(self, data, is_edit=False):
-        super().validate_dialog_data(data, is_edit=is_edit)
-
-        if not str(data.get("work_order", "")).strip():
-            raise ValueError("Work Order is required.")
-
-        if not str(data.get("product_code", "")).strip():
-            raise ValueError("Product Code is required.")
-
+    def validate_dialog_data(
+        self,
+        data,
+        is_edit=False,
+    ):
+        super().validate_dialog_data(
+            data,
+            is_edit=is_edit,
+        )
+        if not str(
+            data.get("work_order", "")
+        ).strip():
+            raise ValueError(
+                "Work Order is required."
+            )
+        if not str(
+            data.get("product_code", "")
+        ).strip():
+            raise ValueError(
+                "Product Code is required."
+            )
         return True
-
-    # ==========================================================
-    # Export
-    # ==========================================================
 
     @staticmethod
     def record_to_export_row(record):
@@ -161,3 +197,42 @@ class FinishedInventoryPage(MasterCRUDPage):
             "Product Code": record.product_code or "",
             "Qty": record.qty or 0,
         }
+
+    def show_import_history(self):
+        if self.history_service is None:
+            self.show_warning(
+                "Finished Inventory Import History",
+                "Import history is unavailable for "
+                "the injected test service.",
+            )
+            return
+        dialog = FinishedInventoryImportHistoryDialog(
+            parent=self,
+            service=self.history_service,
+        )
+        dialog.exec()
+        self.refresh_table()
+
+    def add_context_actions(self, menu):
+        action = menu.addAction(
+            "Finished Inventory Import History"
+        )
+        return {
+            action: self.show_import_history
+        }
+
+    def close_resources(self):
+        close_importer = getattr(
+            self.importer,
+            "close",
+            None,
+        )
+        if callable(close_importer):
+            close_importer()
+        if (
+            self._owns_history_service
+            and self.history_service is not None
+        ):
+            self.history_service.close()
+        if self._owns_service:
+            self.service.close()
