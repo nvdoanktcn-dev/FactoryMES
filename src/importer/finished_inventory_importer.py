@@ -93,6 +93,8 @@ class FinishedInventoryImporter(MasterBaseImporter):
             )
         )
         self._seen_keys = set()
+        self._preview_reserved = {}
+        self._is_previewing = False
 
     def preview(self, filename):
         if (
@@ -103,7 +105,12 @@ class FinishedInventoryImporter(MasterBaseImporter):
                 filename
             )
         self._seen_keys.clear()
-        return super().preview(filename)
+        self._preview_reserved.clear()
+        self._is_previewing = True
+        try:
+            return super().preview(filename)
+        finally:
+            self._is_previewing = False
 
     def import_file(self, filename):
         preview = self.preview(filename)
@@ -221,6 +228,38 @@ class FinishedInventoryImporter(MasterBaseImporter):
                 "Duplicate row in import file."
             )
         self._seen_keys.add(key)
+        if self._is_previewing:
+            capacity_getter = getattr(
+                self.service,
+                "get_receipt_capacity",
+                None,
+            )
+            if callable(capacity_getter):
+                receipt_key = (
+                    data["work_order"],
+                    data["product_code"],
+                )
+                reserved = self._preview_reserved.get(
+                    receipt_key,
+                    0,
+                )
+                capacity = capacity_getter(*receipt_key)
+                if capacity is not None:
+                    available = max(
+                        capacity["available_qty"]
+                        - reserved,
+                        0,
+                    )
+                    if data["qty"] > available:
+                        raise ValueError(
+                            "Receipt Qty exceeds Final OP "
+                            "availability: requested "
+                            f"{data['qty']}, available "
+                            f"{available}."
+                        )
+                    self._preview_reserved[
+                        receipt_key
+                    ] = reserved + data["qty"]
 
     def map_row(self, row) -> dict:
         return {

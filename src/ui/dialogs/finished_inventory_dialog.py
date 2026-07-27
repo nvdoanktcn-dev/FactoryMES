@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -19,10 +20,16 @@ class FinishedInventoryDialog(QDialog):
     Dialog dùng cho Add/Edit Tồn kho thành phẩm.
     """
 
-    def __init__(self, parent=None, inventory=None):
+    def __init__(
+        self,
+        parent=None,
+        inventory=None,
+        service=None,
+    ):
         super().__init__(parent)
 
         self.inventory = inventory
+        self.service = service
 
         self.setWindowTitle(
             "Add Finished Inventory"
@@ -42,8 +49,17 @@ class FinishedInventoryDialog(QDialog):
 
         self.qty = QSpinBox()
         self.qty.setRange(0, 10_000_000)
+        self.capacity_label = QLabel(
+            "Final OP: - | Received: - | Available: -"
+        )
 
         self.build_ui()
+        self.work_order.editingFinished.connect(
+            self.refresh_capacity
+        )
+        self.product_code.editingFinished.connect(
+            self.refresh_capacity
+        )
 
         if self.inventory is not None:
             self.load_inventory()
@@ -56,6 +72,10 @@ class FinishedInventoryDialog(QDialog):
         form_layout.addRow("Work Order *", self.work_order)
         form_layout.addRow("Product Code *", self.product_code)
         form_layout.addRow("Qty", self.qty)
+        form_layout.addRow(
+            "Receipt Capacity",
+            self.capacity_label,
+        )
 
         button_layout = QHBoxLayout()
 
@@ -86,6 +106,40 @@ class FinishedInventoryDialog(QDialog):
         self.work_order.setText(self.inventory.work_order or "")
         self.product_code.setText(self.inventory.product_code or "")
         self.qty.setValue(self.inventory.qty or 0)
+        self.refresh_capacity()
+
+    def refresh_capacity(self):
+        getter = getattr(
+            self.service,
+            "get_receipt_capacity",
+            None,
+        )
+        if not callable(getter):
+            return
+        work_order = self.work_order.text().strip()
+        product_code = self.product_code.text().strip()
+        if not work_order or not product_code:
+            return
+        try:
+            capacity = getter(
+                work_order,
+                product_code,
+                exclude_inventory_id=getattr(
+                    self.inventory,
+                    "inventory_id",
+                    None,
+                ),
+            )
+        except Exception as error:
+            self.capacity_label.setText(str(error))
+            return
+        if capacity is None:
+            return
+        self.capacity_label.setText(
+            f"Final OP: {capacity['final_op_qty']} | "
+            f"Received: {capacity['received_qty']} | "
+            f"Available: {capacity['available_qty']}"
+        )
 
     def validate_and_accept(self):
         work_order = self.work_order.text().strip()

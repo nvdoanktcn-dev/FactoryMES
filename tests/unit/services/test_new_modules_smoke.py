@@ -276,6 +276,9 @@ class TestRobotOperationLogService(DatabaseTestCase):
 
 class TestInventoryServices(DatabaseTestCase):
     def test_stock_in_stock_out_finished_inventory(self):
+        from src.models.production_log import ProductionLog
+        from src.models.production_order import ProductionOrder
+        from src.models.work_order import WorkOrder
         from src.services.finished_inventory_service import (
             FinishedInventoryService,
         )
@@ -287,6 +290,48 @@ class TestInventoryServices(DatabaseTestCase):
         inventory_service = FinishedInventoryService(
             session=self.session
         )
+
+        self.session.add_all([
+            WorkOrder(
+                work_order_no="WO003",
+                product_code="P001",
+                plan_qty=100,
+                start_date=date(2026, 7, 20),
+                due_date=date(2026, 7, 31),
+                status="IN_PROGRESS",
+            ),
+            ProductionOrder(
+                work_order_no="WO003",
+                product_code="P001",
+                operation_no=10,
+                operation_name="OP10",
+                process_type="CNC",
+                plan_qty=100,
+                status="COMPLETED",
+            ),
+            ProductionOrder(
+                work_order_no="WO003",
+                product_code="P001",
+                operation_no=20,
+                operation_name="Final OP",
+                process_type="CNC",
+                plan_qty=100,
+                status="COMPLETED",
+            ),
+            ProductionLog(
+                record_hash="smoke-final-op-wo003".ljust(64, "0"),
+                work_order_no="WO003",
+                product_code="P001",
+                op_no="20",
+                machine_code="BL-SMOKE",
+                employee_code="EMP-SMOKE",
+                shift="DAY",
+                ok_qty=100,
+                ng_qty=0,
+                status="COMPLETED",
+            ),
+        ])
+        self.session.flush()
 
         stock_in = stock_in_service.create_stock_in(
             {
