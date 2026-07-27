@@ -36,3 +36,26 @@ class FinishedInventoryRepository(BaseRepository):
             )
             .all()
         )
+
+    def find_exact(
+        self,
+        *,
+        inventory_date,
+        work_order,
+        product_code,
+        qty,
+    ):
+        return (
+            self.session
+            .query(FinishedInventory)
+            .filter(
+                FinishedInventory.inventory_date
+                == inventory_date,
+                FinishedInventory.work_order
+                == work_order,
+                FinishedInventory.product_code
+                == product_code,
+                FinishedInventory.qty == qty,
+            )
+            .first()
+        )

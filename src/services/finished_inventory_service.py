@@ -64,6 +64,18 @@ class FinishedInventoryService(SessionOwnedService):
             )
         ]
 
+    def has_exact_inventory(self, data) -> bool:
+        normalized = self._normalize_data(data)
+
+        self._validate(normalized)
+
+        return (
+            self.repository.find_exact(
+                **normalized
+            )
+            is not None
+        )
+
     # ==========================================================
     # Create
     # ==========================================================
