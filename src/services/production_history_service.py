@@ -547,10 +547,29 @@ class ProductionHistoryService(SessionOwnedService):
             final_output_only=True,
         )
 
-    def group_by_date(self, records):
+    def group_by_date(
+        self,
+        records,
+        *,
+        final_output_only=False,
+    ):
+        records = list(records or [])
+
+        final_record_ids = set()
+
+        if final_output_only:
+            final_record_ids = {
+                id(record)
+                for record in (
+                    self.select_final_operation_records(
+                        records
+                    )
+                )
+            }
+
         grouped = {}
 
-        for record in records or []:
+        for record in records:
             start_time = getattr(
                 record,
                 "start_time",
@@ -574,9 +593,40 @@ class ProductionHistoryService(SessionOwnedService):
         results = []
 
         for group_date, group_records in grouped.items():
-            summary = self.build_summary(
-                group_records
-            )
+            summary = self.build_summary(group_records)
+
+            if final_output_only:
+                output_records = [
+                    record
+                    for record in group_records
+                    if id(record) in final_record_ids
+                ]
+
+                output_summary = self.build_summary(
+                    output_records
+                )
+
+                for field_name in (
+                    "ok_qty",
+                    "ng_qty",
+                    "total_qty",
+                    "yield_percent",
+                    "ng_percent",
+                ):
+                    summary[field_name] = (
+                        output_summary[field_name]
+                    )
+
+                runtime_sec = self._to_float(
+                    summary.get("runtime_sec", 0)
+                )
+                summary["output_per_hour"] = (
+                    summary["total_qty"]
+                    * 3600
+                    / runtime_sec
+                    if runtime_sec > 0
+                    else 0.0
+                )
 
             summary[
                 "production_date"

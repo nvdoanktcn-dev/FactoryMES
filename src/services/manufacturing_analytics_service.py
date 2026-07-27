@@ -59,6 +59,7 @@ class ManufacturingAnalyticsService:
         shift=None,
         status=None,
         keyword=None,
+        machine_group=None,
     ):
         """
         Xây dựng toàn bộ Analytics cho khoảng thời gian.
@@ -102,6 +103,26 @@ class ManufacturingAnalyticsService:
             status=status,
             keyword=keyword,
         )
+
+        normalized_machine_group = (
+            self._normalize_machine_group(
+                machine_group
+            )
+        )
+
+        if normalized_machine_group:
+            records = [
+                record
+                for record in records
+                if self._machine_group_for_code(
+                    getattr(
+                        record,
+                        "machine_code",
+                        "",
+                    )
+                )
+                == normalized_machine_group
+            ]
 
         summary = self._build_summary(
             records
@@ -206,6 +227,9 @@ class ManufacturingAnalyticsService:
                     str(
                         keyword or ""
                     ).strip(),
+
+                "machine_group":
+                    normalized_machine_group,
             },
 
             "record_count": len(records),
@@ -221,7 +245,10 @@ class ManufacturingAnalyticsService:
     def _build_summary(self, records):
         base_summary = (
             self.history_service
-            .build_summary(records)
+            .build_summary(
+                records,
+                final_output_only=True,
+            )
         )
 
         runtime_sec = self._to_float(
@@ -685,7 +712,10 @@ class ManufacturingAnalyticsService:
     ):
         grouped = (
             self.history_service
-            .group_by_date(records)
+            .group_by_date(
+                records,
+                final_output_only=True,
+            )
         )
 
         return [
@@ -1250,6 +1280,48 @@ class ManufacturingAnalyticsService:
         return str(
             value or ""
         ).strip().upper()
+
+    @classmethod
+    def _normalize_machine_group(
+        cls,
+        value,
+    ):
+        normalized = cls._normalize_code(value)
+
+        if normalized in {
+            "",
+            "ALL",
+            "ALL MACHINES",
+        }:
+            return ""
+
+        if normalized not in {
+            "CNC",
+            "ROBOT",
+        }:
+            raise ValueError(
+                "Machine Group must be CNC or ROBOT."
+            )
+
+        return normalized
+
+    @classmethod
+    def _machine_group_for_code(
+        cls,
+        value,
+    ):
+        code = cls._normalize_code(value)
+
+        if code.startswith("BL"):
+            return "CNC"
+
+        if (
+            code.startswith("BR")
+            or code.startswith("ASK")
+        ):
+            return "ROBOT"
+
+        return "OTHER"
 
     @classmethod
     def _normalize_op(cls, value):
