@@ -244,6 +244,28 @@ class FinishedInventoryService(SessionOwnedService):
             exclude_inventory_id=exclude_inventory_id,
         )
 
+    def get_receipt_audit_history(self, limit=100):
+        if self.receipt_audit_service is None:
+            return []
+        return self.receipt_audit_service.get_recent(
+            limit=limit
+        )
+
+    def rollback_receipt_audit(
+        self,
+        audit_id,
+        *,
+        username="System",
+    ):
+        if self.receipt_audit_service is None:
+            raise ValueError(
+                "Receipt audit is unavailable."
+            )
+        return self.receipt_audit_service.rollback(
+            audit_id,
+            username=username,
+        )
+
     def get_pending_receipts(self):
         if self.receipt_control_service is None:
             return []
