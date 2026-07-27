@@ -22,6 +22,9 @@ from src.ui.dialogs.finished_inventory_import_history_dialog import (
 from src.ui.dialogs.finished_inventory_pending_receipts_dialog import (
     FinishedInventoryPendingReceiptsDialog,
 )
+from src.ui.dialogs.finished_inventory_receipt_audit_dialog import (
+    FinishedInventoryReceiptAuditDialog,
+)
 from src.ui.framework.master_crud_page import MasterCRUDPage
 
 
@@ -85,6 +88,9 @@ class FinishedInventoryPage(MasterCRUDPage):
         self.pending_receipts_button = QPushButton(
             "📥 Pending Receipts"
         )
+        self.receipt_audit_button = QPushButton(
+            "📋 Receipt History"
+        )
         self.history_button = QPushButton(
             "🕘 Import History"
         )
@@ -99,10 +105,17 @@ class FinishedInventoryPage(MasterCRUDPage):
         )
         toolbar_layout.insertWidget(
             insert_at + 1,
+            self.receipt_audit_button,
+        )
+        toolbar_layout.insertWidget(
+            insert_at + 2,
             self.history_button,
         )
         self.pending_receipts_button.clicked.connect(
             self.show_pending_receipts
+        )
+        self.receipt_audit_button.clicked.connect(
+            self.show_receipt_audit_history
         )
         self.history_button.clicked.connect(
             self.show_import_history
@@ -226,6 +239,25 @@ class FinishedInventoryPage(MasterCRUDPage):
         dialog.exec()
         self.refresh_table()
 
+    def show_receipt_audit_history(self):
+        if getattr(
+            self.service,
+            "receipt_audit_service",
+            None,
+        ) is None:
+            self.show_warning(
+                "Receipt Audit History",
+                "Receipt audit is unavailable for "
+                "the injected test service.",
+            )
+            return
+        dialog = FinishedInventoryReceiptAuditDialog(
+            parent=self,
+            service=self.service,
+        )
+        dialog.exec()
+        self.refresh_table()
+
     def show_import_history(self):
         if self.history_service is None:
             self.show_warning(
@@ -245,11 +277,15 @@ class FinishedInventoryPage(MasterCRUDPage):
         pending_action = menu.addAction(
             "Finished Inventory Pending Receipts"
         )
+        audit_action = menu.addAction(
+            "Finished Inventory Receipt History"
+        )
         history_action = menu.addAction(
             "Finished Inventory Import History"
         )
         return {
             pending_action: self.show_pending_receipts,
+            audit_action: self.show_receipt_audit_history,
             history_action: self.show_import_history,
         }
 
