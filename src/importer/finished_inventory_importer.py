@@ -280,7 +280,30 @@ class FinishedInventoryImporter(MasterBaseImporter):
     def save_record(self, data):
         if self.service.has_exact_inventory(data):
             return "skipped", None
-        record = self.service.create_inventory(data)
+        create_inventory = (
+            self.service.create_inventory
+        )
+        try:
+            from inspect import Parameter, signature
+            parameters = signature(
+                create_inventory
+            ).parameters.values()
+            supports_source = any(
+                parameter.name == "source"
+                or parameter.kind
+                == Parameter.VAR_KEYWORD
+                for parameter in parameters
+            )
+        except (TypeError, ValueError):
+            supports_source = False
+        record = (
+            create_inventory(
+                data,
+                source="EXCEL_IMPORT",
+            )
+            if supports_source
+            else create_inventory(data)
+        )
         return "created", record
 
     def close(self) -> None:

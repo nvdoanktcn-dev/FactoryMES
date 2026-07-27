@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime
-from datetime import datetime
+from datetime import UTC, datetime
 
 from src.database.base import Base
 
@@ -23,5 +23,5 @@ class AuditLog(Base):
 
     created_at = Column(
         DateTime,
-        default=datetime.utcnow
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
