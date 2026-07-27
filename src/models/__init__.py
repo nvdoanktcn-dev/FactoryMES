@@ -1,3 +1,4 @@
+from src.models.user import User
 from .product import Product
 from .machine import Machine
 from .employee import Employee
@@ -44,6 +45,7 @@ from src.models.robot import Robot
 from src.models.robot_operation_log import RobotOperationLog
 
 __all__ = [
+    "User",
     "Product",
     "Machine",
     "Employee",
