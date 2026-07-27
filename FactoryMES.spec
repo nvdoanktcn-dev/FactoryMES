@@ -22,6 +22,14 @@ analysis = Analysis(
             ),
             "config",
         ),
+        (
+            str(
+                ROOT
+                / "assets"
+                / "factorymes_icon.png"
+            ),
+            "assets",
+        ),
     ],
     hiddenimports=hidden_imports,
     hookspath=[],
@@ -50,6 +58,7 @@ executable = EXE(
     strip=False,
     upx=True,
     console=False,
+    icon="assets/factorymes.ico",
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
