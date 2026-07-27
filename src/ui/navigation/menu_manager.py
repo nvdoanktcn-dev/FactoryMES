@@ -127,6 +127,10 @@ class MenuManager:
                 "Machine Utilization",
                 "Machine Utilization Report",
             ),
+            cls._create_item(
+                "Production / Inventory",
+                "Production Inventory Reconciliation",
+            ),
         ])
 
         system = cls._create_item(

@@ -31,6 +31,7 @@ EXPECTED_PAGE_NAMES = (
     "Robot",
     "Inventory",
     "Machine Utilization Report",
+    "Production Inventory Reconciliation",
     "Production",
     "Production Assignment",
     "Production Execution",
