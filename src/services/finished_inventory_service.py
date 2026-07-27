@@ -14,6 +14,9 @@ from src.services.base_service import SessionOwnedService
 from src.services.finished_inventory_receipt_control_service import (
     FinishedInventoryReceiptControlService,
 )
+from src.services.finished_inventory_receipt_audit_service import (
+    FinishedInventoryReceiptAuditService,
+)
 
 
 class FinishedInventoryService(SessionOwnedService):
@@ -26,6 +29,7 @@ class FinishedInventoryService(SessionOwnedService):
         session: Session | None = None,
         repository: FinishedInventoryRepository | None = None,
         receipt_control_service=None,
+        receipt_audit_service=None,
     ) -> None:
         if repository is not None:
             super().__init__(
@@ -35,6 +39,9 @@ class FinishedInventoryService(SessionOwnedService):
             self.repository = repository
             self.receipt_control_service = (
                 receipt_control_service
+            )
+            self.receipt_audit_service = (
+                receipt_audit_service
             )
             return
 
@@ -49,6 +56,16 @@ class FinishedInventoryService(SessionOwnedService):
                 session=self.require_session(),
                 finished_inventory_repository=(
                     self.repository
+                ),
+            )
+        )
+        self.receipt_audit_service = (
+            receipt_audit_service
+            or FinishedInventoryReceiptAuditService(
+                session=self.require_session(),
+                inventory_repository=self.repository,
+                receipt_control_service=(
+                    self.receipt_control_service
                 ),
             )
         )
@@ -96,7 +113,13 @@ class FinishedInventoryService(SessionOwnedService):
     # Create
     # ==========================================================
 
-    def create_inventory(self, data):
+    def create_inventory(
+        self,
+        data,
+        *,
+        source="MANUAL",
+        username="System",
+    ):
         normalized = self._normalize_data(data)
 
         self._validate(normalized)
@@ -110,13 +133,27 @@ class FinishedInventoryService(SessionOwnedService):
             f"{normalized['product_code']}"
         )
 
-        return self.repository.add(record)
+        record = self.repository.add(record)
+        if self.receipt_audit_service is not None:
+            self.receipt_audit_service.record_create(
+                record,
+                source=source,
+                username=username,
+            )
+        return record
 
     # ==========================================================
     # Update
     # ==========================================================
 
-    def update_inventory(self, inventory_id, data):
+    def update_inventory(
+        self,
+        inventory_id,
+        data,
+        *,
+        source="MANUAL",
+        username="System",
+    ):
         record = self.repository.get_by_id(inventory_id)
 
         if record is None:
@@ -124,6 +161,11 @@ class FinishedInventoryService(SessionOwnedService):
                 f"FinishedInventory not found: {inventory_id}"
             )
 
+        old_data = (
+            self.receipt_audit_service.snapshot(record)
+            if self.receipt_audit_service is not None
+            else None
+        )
         normalized = self._normalize_data(data)
 
         self._validate(normalized)
@@ -140,6 +182,13 @@ class FinishedInventoryService(SessionOwnedService):
         )
 
         self.repository.update()
+        if self.receipt_audit_service is not None:
+            self.receipt_audit_service.record_update(
+                record,
+                old_data,
+                source=source,
+                username=username,
+            )
 
         return record
 
@@ -147,7 +196,13 @@ class FinishedInventoryService(SessionOwnedService):
     # Delete
     # ==========================================================
 
-    def delete_inventory(self, inventory_id):
+    def delete_inventory(
+        self,
+        inventory_id,
+        *,
+        source="MANUAL",
+        username="System",
+    ):
         record = self.repository.get_by_id(inventory_id)
 
         if record is None:
@@ -155,11 +210,24 @@ class FinishedInventoryService(SessionOwnedService):
                 f"FinishedInventory not found: {inventory_id}"
             )
 
+        old_data = (
+            self.receipt_audit_service.snapshot(record)
+            if self.receipt_audit_service is not None
+            else None
+        )
         self.log_warning(
             f"Delete FinishedInventory: {inventory_id}"
         )
 
-        return self.repository.delete(record)
+        deleted = self.repository.delete(record)
+        if self.receipt_audit_service is not None:
+            self.receipt_audit_service.record_delete(
+                record,
+                old_data,
+                source=source,
+                username=username,
+            )
+        return deleted
 
     def get_receipt_capacity(
         self,

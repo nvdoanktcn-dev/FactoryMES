@@ -212,7 +212,8 @@ class FinishedInventoryPendingReceiptsDialog(QDialog):
             return
         try:
             self.service.create_inventory(
-                dialog.get_data()
+                dialog.get_data(),
+                source="PENDING_RECEIPT",
             )
         except Exception as error:
             QMessageBox.critical(
