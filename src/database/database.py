@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 
+from src.utils.paths import database_path
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-DATABASE_PATH = BASE_DIR / "database" / "factory_mes.db"
+
+DATABASE_PATH = database_path()
 
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 

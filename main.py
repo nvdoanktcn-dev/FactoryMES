@@ -16,7 +16,7 @@ from matplotlib.backends.backend_qtagg import (  # noqa: E402, F401
     FigureCanvasQTAgg as _FigureCanvasQTAgg,
 )
 from PySide6.QtCore import qInstallMessageHandler, qVersion  # noqa: E402
-from PySide6.QtGui import QFont  # noqa: E402
+from PySide6.QtGui import QFont, QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from src.database.base import Base  # noqa: E402
@@ -29,6 +29,7 @@ from src.ui.main_window import MainWindow  # noqa: E402
 from src.ui.theme.theme_manager import ThemeManager  # noqa: E402
 from src.utils.config import AppConfig  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
+from src.utils.paths import asset_path  # noqa: E402
 
 
 logger = get_logger(__name__)
@@ -83,6 +84,15 @@ def create_application(config: AppConfig) -> QApplication:
     app.setApplicationName("FactoryMES")
     app.setOrganizationName("FactoryMES")
     app.setApplicationVersion(str(version))
+
+    icon_path = asset_path(
+        "factorymes_icon.png"
+    )
+
+    if icon_path.is_file():
+        app.setWindowIcon(
+            QIcon(str(icon_path))
+        )
 
     app.setFont(
         QFont(

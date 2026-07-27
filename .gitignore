@@ -51,3 +51,5 @@ data/FactoryMES.db
 # SQLite runtime files
 *.db-wal
 *.db-shm
+
+/artifacts/

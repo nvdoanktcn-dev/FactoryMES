@@ -1,9 +1,9 @@
 import json
-from pathlib import Path
+
+from src.utils.paths import config_path
 
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-CONFIG_PATH = BASE_DIR / "config" / "app.json"
+CONFIG_PATH = config_path()
 
 
 class AppConfig:
