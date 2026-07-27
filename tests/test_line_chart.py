@@ -79,6 +79,57 @@ def main():
 
     return app.exec()
 
+def test_empty_line_chart_shows_empty_state():
+    empty_chart = LineChart(
+        title="Empty chart",
+    )
+
+    empty_chart.load_data(
+        LineChartData(
+            title="Empty data",
+            labels=[],
+            series=[
+                ChartSeries(
+                    name="OK",
+                    values=[],
+                ),
+            ],
+        )
+    )
+
+    assert empty_chart._has_data is False
+    assert (
+        empty_chart.empty_label.text()
+        == "No data available."
+    )
+    assert empty_chart.canvas.isHidden()
+    assert not empty_chart.empty_label.isHidden()
+
+
+def test_values_without_labels_remain_invalid():
+    invalid_chart = LineChart(
+        title="Invalid chart",
+    )
+
+    invalid_chart.load_data(
+        LineChartData(
+            title="Invalid data",
+            labels=[],
+            series=[
+                ChartSeries(
+                    name="OK",
+                    values=[100],
+                ),
+            ],
+        )
+    )
+
+    assert invalid_chart._has_data is True
+    assert (
+        "LineChartData labels are required."
+        in invalid_chart.empty_label.text()
+    )
+
 
 if __name__ == "__main__":
     sys.exit(main())

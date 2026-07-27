@@ -78,17 +78,18 @@ class LineChartData:
 
     @property
     def is_empty(self):
-        if not self.labels:
-            return True
-
         if not self.series:
             return True
 
-        return not any(
-            series.values
+        has_values = any(
+            bool(series.values)
             for series in self.series
         )
 
+        return (
+            not self.labels
+            and not has_values
+        )
 
 @dataclass(slots=True)
 class BarChartData:
