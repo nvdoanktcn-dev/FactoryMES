@@ -49,6 +49,7 @@ class NavigationManager:
         stack: QStackedWidget,
         dashboard_controller=None,
         allowed_pages=None,
+        current_user=None,
     ) -> None:
         if stack is None:
             raise ValueError(
@@ -57,6 +58,7 @@ class NavigationManager:
 
         self.stack = stack
         self.dashboard_controller = dashboard_controller
+        self.current_user = current_user
 
         self.allowed_pages = (
             None
@@ -181,6 +183,9 @@ class NavigationManager:
         from src.ui.pages.employee_page import (
             EmployeePage,
         )
+        from src.ui.pages.user_management_page import (
+            UserManagementPage,
+        )
         from src.ui.pages.machine_page import (
             MachinePage,
         )
@@ -222,6 +227,13 @@ class NavigationManager:
         self.register_factory(
             "Master Import",
             MasterImportPage,
+        )
+
+        self.register_factory(
+            "User Management",
+            lambda: UserManagementPage(
+                current_user=self.current_user
+            ),
         )
 
         self.register_factory(

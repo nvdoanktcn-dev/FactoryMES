@@ -9,6 +9,7 @@ class AuthenticatedUser:
     username: str
     display_name: str
     role: str
+    is_active: bool = True
 
     @property
     def audit_username(self) -> str:

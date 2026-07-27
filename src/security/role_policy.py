@@ -5,6 +5,7 @@ class RolePolicy:
     ALL_PAGES = frozenset({
         "Dashboard",
         "Master Import",
+        "User Management",
         "Product",
         "Machine",
         "Employee",

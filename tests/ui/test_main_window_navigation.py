@@ -22,6 +22,7 @@ from src.ui.navigation.navigation_manager import NavigationManager
 EXPECTED_PAGE_NAMES = (
     "Dashboard",
     "Master Import",
+    "User Management",
     "Product",
     "Machine",
     "Employee",

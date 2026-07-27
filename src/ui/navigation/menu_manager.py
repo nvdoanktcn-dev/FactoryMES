@@ -179,6 +179,10 @@ class MenuManager:
                 "Master Import",
                 "Master Import",
             ),
+            cls._create_item(
+                "User Management",
+                "User Management",
+            ),
         ])
 
         tree.addTopLevelItem(

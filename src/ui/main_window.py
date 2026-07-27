@@ -103,6 +103,7 @@ class MainWindow(QMainWindow):
                     self.dashboard_controller
                 ),
                 allowed_pages=self.allowed_pages,
+                current_user=self.current_user,
             )
         )
 
