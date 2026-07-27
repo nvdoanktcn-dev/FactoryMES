@@ -1,41 +1,24 @@
 from __future__ import annotations
 
 from src.models.import_log import ImportLog
-from src.repository.base_repository import (
-    BaseRepository,
-)
+from src.repository.base_repository import BaseRepository
 
 
-class ImportLogRepository(
-    BaseRepository
-):
-    def __init__(
-        self,
-        session,
-    ):
+class ImportLogRepository(BaseRepository):
+    def __init__(self, session):
         super().__init__(
             session=session,
             model=ImportLog,
         )
 
-    def get_recent(
-        self,
-        limit=100,
-    ):
+    def get_recent(self, limit=100):
         try:
-            normalized_limit = max(
-                1,
-                int(limit),
-            )
-        except (
-            TypeError,
-            ValueError,
-        ):
+            normalized_limit = max(1, int(limit))
+        except (TypeError, ValueError):
             normalized_limit = 100
 
         return (
-            self.session
-            .query(ImportLog)
+            self.session.query(ImportLog)
             .order_by(
                 ImportLog.import_time.desc(),
                 ImportLog.id.desc(),
@@ -44,22 +27,58 @@ class ImportLogRepository(
             .all()
         )
 
-    def get_by_log_id(
+    def get_recent_by_module(
         self,
-        log_id,
+        module,
+        limit=100,
     ):
-        return self.get_by_id(
-            log_id
+        try:
+            normalized_limit = max(1, int(limit))
+        except (TypeError, ValueError):
+            normalized_limit = 100
+
+        module_name = str(module or "").strip().upper()
+
+        return (
+            self.session.query(ImportLog)
+            .filter(ImportLog.module == module_name)
+            .order_by(
+                ImportLog.import_time.desc(),
+                ImportLog.id.desc(),
+            )
+            .limit(normalized_limit)
+            .all()
         )
 
-    def update_log(
+    def get_completed_by_fingerprint(
         self,
-        log_id,
-        **values,
+        module,
+        fingerprint,
     ):
-        record = self.get_by_log_id(
-            log_id
+        module_name = str(module or "").strip().upper()
+        token = str(fingerprint or "").strip().upper()
+
+        if not module_name or not token:
+            return None
+
+        return (
+            self.session.query(ImportLog)
+            .filter(
+                ImportLog.module == module_name,
+                ImportLog.sheet_name == token,
+                ImportLog.status.in_(
+                    ("SUCCESS", "PARTIAL")
+                ),
+            )
+            .order_by(ImportLog.id.desc())
+            .first()
         )
+
+    def get_by_log_id(self, log_id):
+        return self.get_by_id(log_id)
+
+    def update_log(self, log_id, **values):
+        record = self.get_by_log_id(log_id)
 
         if record is None:
             raise ValueError(
@@ -67,16 +86,8 @@ class ImportLogRepository(
             )
 
         for field_name, value in values.items():
-            if hasattr(
-                record,
-                field_name,
-            ):
-                setattr(
-                    record,
-                    field_name,
-                    value,
-                )
+            if hasattr(record, field_name):
+                setattr(record, field_name, value)
 
         self.session.flush()
-
         return record

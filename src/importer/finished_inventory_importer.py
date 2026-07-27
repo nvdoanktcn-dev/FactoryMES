@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from time import perf_counter
 
 import pandas as pd
 
@@ -10,6 +11,9 @@ from src.importer.master_base_importer import (
 )
 from src.repository.work_order_repository import (
     WorkOrderRepository,
+)
+from src.services.finished_inventory_import_history_service import (
+    FinishedInventoryImportHistoryService,
 )
 from src.services.finished_inventory_service import (
     FinishedInventoryService,
@@ -54,6 +58,7 @@ class FinishedInventoryImporter(MasterBaseImporter):
         self,
         service=None,
         work_order_repository=None,
+        history_service=None,
     ) -> None:
         self._owns_service = service is None
         self.service = (
@@ -73,9 +78,30 @@ class FinishedInventoryImporter(MasterBaseImporter):
             work_order_repository
             or WorkOrderRepository(session)
         )
+        self._owns_history_service = (
+            history_service is None
+            and session is not None
+        )
+        self.history_service = (
+            history_service
+            or (
+                FinishedInventoryImportHistoryService(
+                    session=session
+                )
+                if session is not None
+                else None
+            )
+        )
         self._seen_keys = set()
 
     def preview(self, filename):
+        if (
+            self.history_service is not None
+            and self._is_real_file(filename)
+        ):
+            self.history_service.assert_not_imported(
+                filename
+            )
         self._seen_keys.clear()
         return super().preview(filename)
 
@@ -84,29 +110,61 @@ class FinishedInventoryImporter(MasterBaseImporter):
         dataframe = preview["dataframe"]
         self._seen_keys.clear()
         result = MasterImportResult()
+        started_at = perf_counter()
+        log = (
+            self.history_service.begin_import(
+                filename,
+                len(dataframe),
+            )
+            if (
+                self.history_service is not None
+                and self._is_real_file(filename)
+            )
+            else None
+        )
 
-        for index, row in dataframe.iterrows():
-            excel_row = index + 2
-            try:
-                self.validate_row(row, excel_row)
-                action = self.save_record(
-                    self.map_row(row)
-                )
-                if action == "created":
-                    result.add_created()
-                elif action == "updated":
-                    result.add_updated()
-                else:
-                    result.add_skipped()
-                result.add_valid()
-            except Exception as error:
-                result.add_error(
-                    excel_row,
-                    str(error),
-                )
+        try:
+            for index, row in dataframe.iterrows():
+                excel_row = index + 2
+                try:
+                    self.validate_row(row, excel_row)
+                    action, record = self.save_record(
+                        self.map_row(row)
+                    )
+                    if action == "created":
+                        result.add_created()
+                        if log is not None:
+                            self.history_service.record_created(
+                                log.id,
+                                record,
+                            )
+                    elif action == "updated":
+                        result.add_updated()
+                    else:
+                        result.add_skipped()
+                    result.add_valid()
+                except Exception as error:
+                    result.add_error(
+                        excel_row,
+                        str(error),
+                    )
 
-        result.finish(len(dataframe))
-        return result
+            result.finish(len(dataframe))
+            if log is not None:
+                self.history_service.complete_import(
+                    log.id,
+                    total=result.total,
+                    created=result.created,
+                    skipped=result.skipped,
+                    failed=result.invalid,
+                    started_at=started_at,
+                )
+                result.import_log_id = log.id
+            return result
+        except Exception:
+            if self.history_service is not None:
+                self.history_service.rollback_session()
+            raise
 
     def validate_row(
         self,
@@ -180,15 +238,15 @@ class FinishedInventoryImporter(MasterBaseImporter):
             ),
         }
 
-    def save_record(self, data) -> str:
-        if self.service.has_exact_inventory(
-            data
-        ):
-            return "skipped"
-        self.service.create_inventory(data)
-        return "created"
+    def save_record(self, data):
+        if self.service.has_exact_inventory(data):
+            return "skipped", None
+        record = self.service.create_inventory(data)
+        return "created", record
 
     def close(self) -> None:
+        if self._owns_history_service:
+            self.history_service.close()
         if self._owns_service:
             self.service.close()
 
@@ -200,6 +258,15 @@ class FinishedInventoryImporter(MasterBaseImporter):
             data["product_code"],
             data["qty"],
         )
+
+    @staticmethod
+    def _is_real_file(filename):
+        try:
+            from pathlib import Path
+
+            return Path(filename).is_file()
+        except (TypeError, ValueError, OSError):
+            return False
 
     @staticmethod
     def _to_date(value):
