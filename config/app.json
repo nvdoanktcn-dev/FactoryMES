@@ -1,6 +1,6 @@
 {
   "app_name": "FactoryMES",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "theme": "light",
   "language": "vi",
   "database": "sqlite"

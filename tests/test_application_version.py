@@ -38,7 +38,7 @@ def test_shared_version_matches_json_configuration() -> None:
     assert APP_NAME == str(
         config.get("app_name")
     )
-    assert VERSION == "0.5.2"
+    assert VERSION == "0.5.3"
 
 
 def test_service_and_qapplication_use_shared_version() -> None:
