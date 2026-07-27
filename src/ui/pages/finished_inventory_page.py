@@ -1,6 +1,9 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTableWidgetItem
 
+from src.importer.finished_inventory_importer import (
+    FinishedInventoryImporter,
+)
 from src.services.finished_inventory_service import (
     FinishedInventoryService,
 )
@@ -26,13 +29,29 @@ class FinishedInventoryPage(MasterCRUDPage):
 
     DEFAULT_EXPORT_NAME = "finished_inventory.xlsx"
 
-    def __init__(self):
+    def __init__(
+        self,
+        service=None,
+        importer=None,
+    ):
+        inventory_service = (
+            service
+            or FinishedInventoryService()
+        )
+
+        inventory_importer = (
+            importer
+            or FinishedInventoryImporter(
+                service=inventory_service
+            )
+        )
+
         super().__init__(
             title="📦 Finished Inventory",
             headers=self.HEADERS,
             search_placeholder="Search finished inventory...",
-            service=FinishedInventoryService(),
-            importer=None,
+            service=inventory_service,
+            importer=inventory_importer,
             dialog_class=FinishedInventoryDialog,
         )
 
