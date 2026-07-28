@@ -891,11 +891,28 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
             )
 
     def format_export_data_sheet(self, worksheet):
-        """Apply number formats to exported data cells."""
+        """Apply explicit and automatic number formats."""
         from datetime import date, datetime
+
+        column_formats = dict(
+            self.get_export_column_formats()
+            or {}
+        )
+
+        headers = {
+            cell.column: cell.value
+            for cell in worksheet[1]
+        }
 
         for row in worksheet.iter_rows(min_row=2):
             for cell in row:
+                header = headers.get(cell.column)
+                explicit_format = column_formats.get(header)
+
+                if explicit_format:
+                    cell.number_format = explicit_format
+                    continue
+
                 value = cell.value
 
                 if isinstance(value, datetime):
@@ -906,7 +923,7 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
 
                 elif (
                     isinstance(value, int)
-                        and not isinstance(value, bool)
+                    and not isinstance(value, bool)
                 ):
                     cell.number_format = "#,##0"
 
@@ -987,6 +1004,19 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
         worksheet.column_dimensions[
             "B"
         ].width = 32
+
+    def get_export_column_formats(self):
+        """
+        Trả về mapping tên cột -> Excel number format.
+
+        Ví dụ:
+        {
+            "Quantity": "#,##0",
+            "Unit Price": "#,##0.00",
+            "OEE": "0.00%",
+        }
+        """
+        return {}
 
     def get_suggested_export_name(self):
         default = Path(self.get_default_export_name())
