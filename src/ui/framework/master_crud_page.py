@@ -883,11 +883,35 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
                     column_letter
                 ].width = width
 
+            self.format_export_data_sheet(worksheet)
+
             self.write_export_information_sheet(
                 workbook=writer.book,
                 record_count=len(dataframe),
             )
 
+    def format_export_data_sheet(self, worksheet):
+        """Apply number formats to exported data cells."""
+        from datetime import date, datetime
+
+        for row in worksheet.iter_rows(min_row=2):
+            for cell in row:
+                value = cell.value
+
+                if isinstance(value, datetime):
+                    cell.number_format = "dd/mm/yyyy hh:mm:ss"
+
+                elif isinstance(value, date):
+                    cell.number_format = "dd/mm/yyyy"
+
+                elif (
+                    isinstance(value, int)
+                        and not isinstance(value, bool)
+                ):
+                    cell.number_format = "#,##0"
+
+                elif isinstance(value, float):
+                    cell.number_format = "#,##0.00"
     def build_export_metadata(
         self,
         *,

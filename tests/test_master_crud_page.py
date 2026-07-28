@@ -15,6 +15,8 @@ from src.ui.framework.master_crud_page import MasterCRUDPage
 from tests.qt_test_utils import get_test_app
 from openpyxl import load_workbook
 import pandas as pd
+from datetime import date, datetime
+from PySide6.QtWidgets import QApplication
 
 app = get_test_app()
 
@@ -337,3 +339,87 @@ def test_export_metadata_contains_search_keyword():
         metadata["Search Keyword"]
         or "D001"
     ) == "D001"
+def test_write_export_workbook_formats_data_cells(
+    tmp_path,
+):
+    app = QApplication.instance()
+
+    if app is None:
+        app = QApplication([])
+
+    page = DemoPage()
+
+    dataframe = pd.DataFrame(
+        [
+            {
+                "Code": "D001",
+                "Quantity": 1200,
+                "Rate": 12.5,
+                "Inventory Date": date(2026, 7, 28),
+                "Created At": datetime(
+                    2026,
+                    7,
+                    28,
+                    10,
+                    30,
+                    15,
+                ),
+                "Active": True,
+            }
+        ]
+    )
+
+    file_path = tmp_path / "formatted_export.xlsx"
+
+    page.write_export_workbook(
+        dataframe=dataframe,
+        file_path=file_path,
+    )
+
+    workbook = load_workbook(file_path)
+    worksheet = workbook["Data"]
+
+    headers = {
+        cell.value: cell.column
+        for cell in worksheet[1]
+    }
+
+    assert (
+        worksheet.cell(
+            row=2,
+            column=headers["Quantity"],
+        ).number_format
+        == "#,##0"
+    )
+
+    assert (
+        worksheet.cell(
+            row=2,
+            column=headers["Rate"],
+        ).number_format
+        == "#,##0.00"
+    )
+
+    assert (
+        worksheet.cell(
+            row=2,
+            column=headers["Inventory Date"],
+        ).number_format
+        == "dd/mm/yyyy"
+    )
+
+    assert (
+        worksheet.cell(
+            row=2,
+            column=headers["Created At"],
+        ).number_format
+        == "dd/mm/yyyy hh:mm:ss"
+    )
+
+    assert (
+        worksheet.cell(
+            row=2,
+            column=headers["Active"],
+        ).number_format
+        == "General"
+    )
