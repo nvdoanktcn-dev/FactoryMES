@@ -36,8 +36,10 @@ class FinishedInventoryPendingReceiptsDialog(QDialog):
         self,
         parent=None,
         service=None,
+        username="System",
     ):
         super().__init__(parent)
+        self.audit_username = str(username or "System")
         self._owns_service = service is None
         self.service = (
             service or FinishedInventoryService()
@@ -214,6 +216,7 @@ class FinishedInventoryPendingReceiptsDialog(QDialog):
             self.service.create_inventory(
                 dialog.get_data(),
                 source="PENDING_RECEIPT",
+                username=self.audit_username,
             )
         except Exception as error:
             QMessageBox.critical(
