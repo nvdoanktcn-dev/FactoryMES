@@ -220,3 +220,12 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+import re
+
+def test_suggested_export_name_contains_timestamp():
+    page = DemoPage()
+    assert re.fullmatch(
+        r"demo_master_\d{8}_\d{6}\.xlsx",
+        page.get_suggested_export_name(),
+    )

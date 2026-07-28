@@ -1,7 +1,10 @@
 from abc import ABC, ABCMeta, abstractmethod
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from openpyxl.styles import Alignment, Font
+from openpyxl.utils import get_column_letter
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -756,7 +759,7 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
             return
 
         default_name = (
-            self.get_default_export_name()
+            self.get_suggested_export_name()
         )
 
         file_path, _ = QFileDialog.getSaveFileName(
@@ -786,9 +789,9 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
                 export_rows
             )
 
-            dataframe.to_excel(
-                file_path,
-                index=False,
+            self.write_export_workbook(
+                dataframe=dataframe,
+                file_path=file_path,
             )
 
             self.show_info(
@@ -807,6 +810,33 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
 
     def get_default_export_name(self):
         return self.DEFAULT_EXPORT_NAME
+
+
+    def write_export_workbook(
+        self,
+        *,
+        dataframe,
+        file_path,
+    ):
+        with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+            dataframe.to_excel(writer, sheet_name="Data", index=False)
+            worksheet = writer.sheets["Data"]
+            worksheet.freeze_panes = "A2"
+            if worksheet.max_column:
+                worksheet.auto_filter.ref = (
+                    f"A1:{get_column_letter(worksheet.max_column)}{worksheet.max_row}"
+                )
+            for cell in worksheet[1]:
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            for idx, column in enumerate(dataframe.columns, start=1):
+                values = [str(column)] + ["" if v is None else str(v) for v in dataframe[column].tolist()]
+                worksheet.column_dimensions[get_column_letter(idx)].width = min(max(max(map(len, values))+2,10),50)
+
+    def get_suggested_export_name(self):
+        default = Path(self.get_default_export_name())
+        suffix = default.suffix or ".xlsx"
+        return f"{default.stem}_{datetime.now():%Y%m%d_%H%M%S}{suffix}"
 
     def record_to_export_row(
         self,
