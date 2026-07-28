@@ -815,88 +815,57 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
 
     def write_export_workbook(
         self,
-        *,
         dataframe,
         file_path,
     ):
+        export_sheets = dict(
+            self.get_export_sheets(dataframe)
+            or {}
+        )
+
+        if not export_sheets:
+            export_sheets = {
+                "Data": dataframe,
+            }
+
         with pd.ExcelWriter(
             file_path,
-            engine="openpyxl",    
+            engine="openpyxl",
         ) as writer:
-            dataframe.to_excel(
-                writer,
-                sheet_name="Data",
-                index=False,
-            )
-    
-            worksheet = writer.sheets["Data"]
-
-            worksheet.freeze_panes = "A2"
-
-            if worksheet.max_column:
-                worksheet.auto_filter.ref = (
-                    f"A1:"
-                    f"{get_column_letter(worksheet.max_column)}"
-                    f"{worksheet.max_row}"
+            for (
+                sheet_name,
+                sheet_dataframe,
+            ) in export_sheets.items():
+                sheet_dataframe.to_excel(
+                    writer,
+                    sheet_name=sheet_name,
+                    index=False,
                 )
 
-            for cell in worksheet[1]:
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(
-                    horizontal="center",    
-                    vertical="center",
-                )    
-
-            for column_index, column_name in enumerate(
-                dataframe.columns,
-                start=1,
-            ):
-                values = [
-                    str(column_name),
-                    *[
-                            ""
-                        if value is None
-                        else str(value)
-                        for value in dataframe[
-                            column_name
-                        ].tolist()
-                    ]    ,    
+                worksheet = writer.sheets[
+                    sheet_name
                 ]
 
-                maximum_length = max(
-                    len(value)
-                    for value in values
-                )
-
-                width = min(    
-                    max(
-                        maximum_length + 2,
-                        10,
-                    ),
-                    50,
-                )
-
-                column_letter = get_column_letter(
-                    column_index
-                )
-
-                worksheet.column_dimensions[
-                    column_letter
-                ].width = width
-
-            self.format_export_data_sheet(
-                worksheet
-            )
-            
-            if self.use_excel_table_for_export():
-                self.create_export_table(
+                self.configure_export_data_sheet(
                     worksheet
                 )
 
-            self.write_export_information_sheet(
-                workbook=writer.book,
-                            record_count=len(dataframe),
+            primary_sheet_name = (
+                self.get_primary_export_sheet_name()
             )
+
+            primary_dataframe = export_sheets.get(
+                primary_sheet_name,
+                dataframe,
+            )
+
+            if self.include_export_information_sheet():
+                self.write_export_information_sheet(
+                    workbook=writer.book,
+                    record_count=len(
+                        primary_dataframe
+                    ),
+                )
 
             self.post_process_export_workbook(
                 writer.book
@@ -941,6 +910,7 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
 
                 elif isinstance(value, float):
                     cell.number_format = "#,##0.00"
+
     def build_export_metadata(
         self,
         *,
@@ -1067,6 +1037,85 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
             )
         }
 
+    def get_primary_export_sheet_name(self) -> str:
+        """
+        Return the primary worksheet name used for metadata.
+        """
+        return "Data"
+
+    def include_export_information_sheet(self) -> bool:
+        """
+        Return whether the workbook should contain
+        the Information worksheet.
+        """
+        return True
+
+    def configure_export_data_sheet(
+        self,
+        worksheet,
+    ) -> None:
+        """
+        Apply all standard formatting to one exported data sheet.
+        """
+        for cell in worksheet[1]:
+            cell.font = Font(
+                bold=True
+            )
+            cell.alignment = Alignment(
+                horizontal="center",
+                vertical="center",
+            )
+
+        worksheet.freeze_panes = "A2"
+
+        if not self.use_excel_table_for_export():
+            worksheet.auto_filter.ref = (
+                worksheet.dimensions
+            )
+
+        for column_index in range(
+            1,
+            worksheet.max_column + 1,
+        ):
+            maximum_length = 0
+
+            for row in worksheet.iter_rows(
+                min_col=column_index,
+                max_col=column_index,
+            ):
+                cell = row[0]
+
+                if cell.value is None:
+                    continue
+
+                maximum_length = max(
+                    maximum_length,
+                    len(str(cell.value)),
+                )
+
+            column_letter = get_column_letter(
+                column_index
+            )
+
+            worksheet.column_dimensions[
+                column_letter
+            ].width = min(
+                maximum_length + 2,
+                50,
+            )
+
+        self.format_export_data_sheet(
+                    worksheet
+        )
+
+        if self.use_excel_table_for_export():
+            self.create_export_table(
+                worksheet
+            )
+
+        # Đặt sau khi Excel Table đã được tạo.
+        if worksheet.max_row >= 1 and worksheet.max_column >= 1:
+            worksheet.auto_filter.ref = worksheet.dimensions
     def use_excel_table_for_export(self) -> bool:
         """
         Return whether the Data worksheet should use an Excel table.
@@ -1074,44 +1123,49 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
         return True
 
 
-    def get_export_table_name(self) -> str:
-        """
-        Return the Excel table display name.
-    
-        The name must not contain spaces.
-        """
-        return "ExportData"
-    
-
     def get_export_table_style(self) -> str:
-        """
-        Return the built-in Excel table style name.
-        """
+        """Return the built-in Excel table style name."""
         return "TableStyleMedium2"
+
+    def get_export_table_name(
+        self,
+        worksheet,
+    ) -> str:
+        """Return a workbook-unique, Excel-safe table name."""
+        if worksheet.title == "Data":
+            return "ExportData"
+
+        normalized_name = "".join(
+            character
+            for character in worksheet.title
+            if character.isalnum()
+            or character == "_"
+        )
+
+        if not normalized_name:
+            normalized_name = "Data"
+
+        if normalized_name[0].isdigit():
+            normalized_name = f"Sheet_{normalized_name}"
+
+        return f"{normalized_name}Table"
 
     def create_export_table(
         self,
         worksheet,
     ) -> None:
-        """
-        Convert the populated Data worksheet range into an Excel table.
-        """
-        if worksheet.max_row < 2:
+        """Create an Excel table for a non-empty exported worksheet."""
+        if worksheet.max_column < 1 or worksheet.max_row < 2:
             return
-
-        if worksheet.max_column < 1:
-            return
-
-        last_column = get_column_letter(
-            worksheet.max_column
-        )
 
         table_reference = (
-            f"A1:{last_column}{worksheet.max_row}"
+            f"A1:"
+            f"{get_column_letter(worksheet.max_column)}"
+            f"{worksheet.max_row}"
         )
 
         table = Table(
-            displayName=self.get_export_table_name(),
+            displayName=self.get_export_table_name(worksheet),
             ref=table_reference,
         )
 
@@ -1124,6 +1178,20 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
         )
 
         worksheet.add_table(table)
+
+    def get_export_sheets(
+        self,
+        dataframe,
+    ) -> dict[str, object]:
+        """
+        Return the worksheets to export.
+
+        The default implementation preserves the existing
+        single-sheet export behavior.
+        """
+        return {
+            "Data": dataframe,
+        }
 
     # ==========================================================
     # Context menu

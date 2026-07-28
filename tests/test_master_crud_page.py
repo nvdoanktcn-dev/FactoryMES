@@ -527,3 +527,161 @@ def test_export_can_disable_excel_table(
     worksheet = workbook["Data"]
 
     assert len(worksheet.tables) == 0
+
+class MultiSheetDemoPage(DemoPage):
+
+    def get_export_sheets(
+        self,
+        dataframe,
+    ):
+        products = pd.DataFrame(
+            [
+                {
+                    "Code": "P001",
+                    "Name": "Product 1",
+                },
+                {
+                    "Code": "P002",
+                    "Name": "Product 2",
+                },
+            ]
+        )
+
+        inventory = pd.DataFrame(
+            [
+                {
+                    "Warehouse": "WH01",
+                    "Quantity": 100,
+                }
+            ]
+        )
+
+        return {
+            "Products": products,
+            "Inventory": inventory,
+        }
+
+    def get_primary_export_sheet_name(
+        self,
+    ) -> str:
+        return "Products"
+
+def test_export_supports_multiple_data_sheets(
+    tmp_path,
+):
+    page = MultiSheetDemoPage()
+
+    source_dataframe = pd.DataFrame(
+        [
+            {
+                "Code": "SOURCE",
+            }
+        ]
+    )
+
+    file_path = (
+        tmp_path
+        / "multi_sheet_export.xlsx"
+    )
+
+    page.write_export_workbook(
+        dataframe=source_dataframe,
+        file_path=file_path,
+    )
+
+    workbook = load_workbook(file_path)
+
+    assert workbook.sheetnames == [
+        "Products",
+        "Inventory",
+        "Information",
+    ]
+
+    products = workbook["Products"]
+    inventory = workbook["Inventory"]
+
+    assert products["A2"].value == "P001"
+    assert products["B2"].value == "Product 1"
+
+    assert inventory["A2"].value == "WH01"
+    assert inventory["B2"].value == 100
+
+    assert len(products.tables) == 1
+    assert len(inventory.tables) == 1
+
+    product_table = next(
+        iter(products.tables.values())
+    )
+
+    inventory_table = next(
+        iter(inventory.tables.values())
+    )
+
+    assert (
+        product_table.displayName
+        != inventory_table.displayName
+    )
+
+def test_multi_sheet_information_uses_primary_sheet_count(
+    tmp_path,
+):
+    page = MultiSheetDemoPage()
+
+    file_path = (
+        tmp_path
+        / "multi_sheet_metadata.xlsx"
+    )
+
+    page.write_export_workbook(
+        dataframe=pd.DataFrame(),
+        file_path=file_path,
+    )
+
+    workbook = load_workbook(file_path)
+    information = workbook["Information"]
+
+    metadata = {
+        information.cell(
+            row=row,
+            column=1,
+        ).value: information.cell(
+            row=row,
+            column=2,
+        ).value
+        for row in range(
+            1,
+            information.max_row + 1,
+        )
+    }
+
+    assert metadata["Records"] == 2
+
+def test_default_export_still_uses_data_sheet(
+    tmp_path,
+):
+    page = DemoPage()
+
+    dataframe = pd.DataFrame(
+        [
+            {
+                "Code": "D001",
+            }
+        ]
+    )
+
+    file_path = (
+        tmp_path
+        / "default_single_sheet.xlsx"
+    )
+
+    page.write_export_workbook(
+        dataframe=dataframe,
+        file_path=file_path,
+    )
+
+    workbook = load_workbook(file_path)
+
+    assert workbook.sheetnames == [
+        "Data",
+        "Information",
+    ]
