@@ -25,6 +25,9 @@ from src.database.session import close_all_sessions  # noqa: E402
 
 import src.models  # noqa: E402, F401
 
+from src.services.application_login_service import (  # noqa: E402
+    ApplicationLoginService,
+)
 from src.ui.main_window import MainWindow  # noqa: E402
 from src.ui.theme.theme_manager import ThemeManager  # noqa: E402
 from src.utils.config import AppConfig  # noqa: E402
@@ -115,7 +118,19 @@ def run_application(config: AppConfig) -> int:
         close_all_sessions
     )
 
-    window = MainWindow()
+    login_service = ApplicationLoginService()
+    try:
+        current_user = login_service.request_user()
+    finally:
+        login_service.close()
+
+    if current_user is None:
+        logger.info("Login was cancelled.")
+        return 0
+
+    window = MainWindow(
+        current_user=current_user
+    )
     window.show()
 
     exit_code = app.exec()

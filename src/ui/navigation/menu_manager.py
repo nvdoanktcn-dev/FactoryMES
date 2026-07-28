@@ -28,9 +28,46 @@ class MenuManager:
         return item
 
     @classmethod
+    def _filter_tree(
+        cls,
+        tree,
+        allowed_pages,
+    ):
+        if allowed_pages is None:
+            return
+        allowed = set(allowed_pages)
+
+        def filter_children(parent):
+            for index in range(
+                parent.childCount() - 1,
+                -1,
+                -1,
+            ):
+                item = parent.child(index)
+                filter_children(item)
+                page_key = item.data(
+                    0,
+                    Qt.UserRole,
+                )
+                denied_leaf = (
+                    page_key is not None
+                    and str(page_key) not in allowed
+                )
+                empty_group = (
+                    page_key is None
+                    and item.childCount() == 0
+                )
+                if denied_leaf or empty_group:
+                    parent.takeChild(index)
+
+        filter_children(
+            tree.invisibleRootItem()
+        )
+    @classmethod
     def build_menu(
         cls,
         tree,
+        allowed_pages=None,
     ):
         tree.clear()
         tree.setHeaderHidden(True)
@@ -142,6 +179,10 @@ class MenuManager:
                 "Master Import",
                 "Master Import",
             ),
+            cls._create_item(
+                "User Management",
+                "User Management",
+            ),
         ])
 
         tree.addTopLevelItem(
@@ -164,6 +205,11 @@ class MenuManager:
         )
         tree.addTopLevelItem(
             system
+        )
+
+        cls._filter_tree(
+            tree,
+            allowed_pages,
         )
 
         tree.expandAll()

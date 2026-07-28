@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.config.app_config import APP_NAME, VERSION
+from src.security.role_policy import RolePolicy
 from src.ui.navigation.menu_manager import MenuManager
 from src.ui.navigation.navigation_manager import (
     NavigationManager,
@@ -43,8 +44,14 @@ class MainWindow(QMainWindow):
         self,
         parent=None,
         dashboard_controller=None,
+        current_user=None,
     ) -> None:
         super().__init__(parent)
+
+        self.current_user = current_user
+        self.allowed_pages = RolePolicy.allowed_pages_for(
+            current_user
+        )
 
         self.dashboard_controller = (
             dashboard_controller
@@ -95,6 +102,8 @@ class MainWindow(QMainWindow):
                 dashboard_controller=(
                     self.dashboard_controller
                 ),
+                allowed_pages=self.allowed_pages,
+                current_user=self.current_user,
             )
         )
 
@@ -353,7 +362,8 @@ class MainWindow(QMainWindow):
         self.navigation.clear()
 
         MenuManager.build_menu(
-            self.navigation
+            self.navigation,
+            allowed_pages=self.allowed_pages,
         )
 
         self.navigation_manager.build_pages()
@@ -755,9 +765,16 @@ class MainWindow(QMainWindow):
             )
         )
 
+        user_text = ""
+        if self.current_user is not None:
+            user_text = (
+                f"  |  {self.current_user.display_name}"
+                f" ({self.current_user.role})"
+            )
         self.title_label.setText(
             f"🏭 {APP_NAME} V{VERSION}"
             f"  |  {current_time}"
+            f"{user_text}"
         )
 
     def set_footer_status(

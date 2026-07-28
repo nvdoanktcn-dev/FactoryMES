@@ -48,6 +48,8 @@ class NavigationManager:
         self,
         stack: QStackedWidget,
         dashboard_controller=None,
+        allowed_pages=None,
+        current_user=None,
     ) -> None:
         if stack is None:
             raise ValueError(
@@ -56,6 +58,13 @@ class NavigationManager:
 
         self.stack = stack
         self.dashboard_controller = dashboard_controller
+        self.current_user = current_user
+
+        self.allowed_pages = (
+            None
+            if allowed_pages is None
+            else set(allowed_pages)
+        )
 
         # Các page đã được khởi tạo.
         self.pages: dict[str, QWidget] = {}
@@ -174,6 +183,9 @@ class NavigationManager:
         from src.ui.pages.employee_page import (
             EmployeePage,
         )
+        from src.ui.pages.user_management_page import (
+            UserManagementPage,
+        )
         from src.ui.pages.machine_page import (
             MachinePage,
         )
@@ -215,6 +227,13 @@ class NavigationManager:
         self.register_factory(
             "Master Import",
             MasterImportPage,
+        )
+
+        self.register_factory(
+            "User Management",
+            lambda: UserManagementPage(
+                current_user=self.current_user
+            ),
         )
 
         self.register_factory(
@@ -299,8 +318,15 @@ class NavigationManager:
             ),
         )
 
+        if self.allowed_pages is not None:
+            self.page_factories = {
+                name: factory
+                for name, factory
+                in self.page_factories.items()
+                if name in self.allowed_pages
+            }
+
     # ==========================================================
-    # Factory implementations
     # ==========================================================
 
     def _create_dashboard_page(
