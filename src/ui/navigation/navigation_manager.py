@@ -273,7 +273,9 @@ class NavigationManager:
 
         self.register_factory(
             "Inventory",
-            InventoryPage,
+            lambda: InventoryPage(
+                current_user=self.current_user
+            ),
         )
 
         self.register_factory(

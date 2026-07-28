@@ -37,8 +37,10 @@ class FinishedInventoryImportHistoryDialog(QDialog):
         self,
         parent=None,
         service=None,
+        username="System",
     ):
         super().__init__(parent)
+        self.audit_username = str(username or "System")
         self._owns_service = service is None
         self.service = (
             service
@@ -213,8 +215,9 @@ class FinishedInventoryImportHistoryDialog(QDialog):
 
         try:
             result = self.service.rollback_import(
-                record.id
-            )
+                    record.id,
+                    username=self.audit_username,
+                )
         except Exception as error:
             QMessageBox.warning(
                 self,

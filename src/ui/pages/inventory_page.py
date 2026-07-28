@@ -17,12 +17,15 @@ class InventoryPage(QWidget):
     close_resources() khi ứng dụng đóng hoặc page bị reload.
     """
 
-    def __init__(self):
+    def __init__(self, current_user=None):
         super().__init__()
+        self.current_user = current_user
 
         self.stock_in_page = StockInPage()
         self.stock_out_page = StockOutPage()
-        self.finished_inventory_page = FinishedInventoryPage()
+        self.finished_inventory_page = FinishedInventoryPage(
+            current_user=current_user
+        )
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.stock_in_page, "Stock In")

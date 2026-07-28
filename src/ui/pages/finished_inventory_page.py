@@ -45,7 +45,14 @@ class FinishedInventoryPage(MasterCRUDPage):
         service=None,
         importer=None,
         history_service=None,
+        current_user=None,
     ):
+        self.current_user = current_user
+        self.audit_username = str(
+            getattr(current_user, "audit_username", None)
+            or getattr(current_user, "username", None)
+            or "System"
+        )
         self._owns_service = service is None
         service = service or FinishedInventoryService()
         session = getattr(
@@ -72,6 +79,7 @@ class FinishedInventoryPage(MasterCRUDPage):
             or FinishedInventoryImporter(
                 service=service,
                 history_service=history_service,
+                username=self.audit_username,
             )
         )
 
@@ -151,17 +159,22 @@ class FinishedInventoryPage(MasterCRUDPage):
         )
 
     def create_record(self, data):
-        return self.service.create_inventory(data)
+        return self.service.create_inventory(
+            data,
+            username=self.audit_username,
+        )
 
     def update_record(self, record_key, data):
         return self.service.update_inventory(
             record_key,
             data,
+            username=self.audit_username,
         )
 
     def delete_record(self, record_key):
         return self.service.delete_inventory(
-            record_key
+            record_key,
+            username=self.audit_username,
         )
 
     def update_page_summary(self, records):
@@ -234,6 +247,7 @@ class FinishedInventoryPage(MasterCRUDPage):
             FinishedInventoryPendingReceiptsDialog(
                 parent=self,
                 service=self.service,
+                username=self.audit_username,
             )
         )
         dialog.exec()
@@ -254,6 +268,7 @@ class FinishedInventoryPage(MasterCRUDPage):
         dialog = FinishedInventoryReceiptAuditDialog(
             parent=self,
             service=self.service,
+            username=self.audit_username,
         )
         dialog.exec()
         self.refresh_table()
@@ -269,6 +284,7 @@ class FinishedInventoryPage(MasterCRUDPage):
         dialog = FinishedInventoryImportHistoryDialog(
             parent=self,
             service=self.history_service,
+            username=self.audit_username,
         )
         dialog.exec()
         self.refresh_table()

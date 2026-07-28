@@ -59,7 +59,9 @@ class FinishedInventoryImporter(MasterBaseImporter):
         service=None,
         work_order_repository=None,
         history_service=None,
+        username="System",
     ) -> None:
+        self.audit_username = str(username or "System")
         self._owns_service = service is None
         self.service = (
             service
@@ -122,6 +124,7 @@ class FinishedInventoryImporter(MasterBaseImporter):
             self.history_service.begin_import(
                 filename,
                 len(dataframe),
+                user_name=self.audit_username,
             )
             if (
                 self.history_service is not None
@@ -294,16 +297,21 @@ class FinishedInventoryImporter(MasterBaseImporter):
                 == Parameter.VAR_KEYWORD
                 for parameter in parameters
             )
+            supports_username = any(
+                parameter.name == "username"
+                or parameter.kind
+                == Parameter.VAR_KEYWORD
+                for parameter in parameters
+            )
         except (TypeError, ValueError):
             supports_source = False
-        record = (
-            create_inventory(
-                data,
-                source="EXCEL_IMPORT",
-            )
-            if supports_source
-            else create_inventory(data)
-        )
+            supports_username = False
+        options = {}
+        if supports_source:
+            options["source"] = "EXCEL_IMPORT"
+        if supports_username:
+            options["username"] = self.audit_username
+        record = create_inventory(data, **options)
         return "created", record
 
     def close(self) -> None:

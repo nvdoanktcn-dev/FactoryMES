@@ -38,8 +38,10 @@ class FinishedInventoryReceiptAuditDialog(QDialog):
         self,
         parent=None,
         service=None,
+        username="System",
     ):
         super().__init__(parent)
+        self.audit_username = str(username or "System")
         self._owns_service = service is None
         self.service = (
             service or FinishedInventoryService()
@@ -282,7 +284,8 @@ class FinishedInventoryReceiptAuditDialog(QDialog):
         try:
             result = (
                 self.service.rollback_receipt_audit(
-                    record.id
+                    record.id,
+                    username=self.audit_username,
                 )
             )
         except Exception as error:
