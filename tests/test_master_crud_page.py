@@ -438,3 +438,92 @@ def test_post_process_export_workbook_hook(
 
     assert summary["A1"].value == "Generated"
     assert summary["B1"].value is True
+
+def test_export_creates_excel_table(
+    tmp_path,
+):
+    page = DemoPage()
+
+    dataframe = pd.DataFrame(
+        [
+            {
+                "Code": "D001",
+                "Name": "Demo 1",
+                "Quantity": 10,
+            },
+            {
+                "Code": "D002",
+                "Name": "Demo 2",
+                "Quantity": 20,
+            },
+        ]
+    )
+
+    file_path = (
+        tmp_path
+        / "excel_table_export.xlsx"
+    )
+
+    page.write_export_workbook(
+        dataframe=dataframe,
+        file_path=file_path,
+    )
+
+    workbook = load_workbook(file_path)
+    worksheet = workbook["Data"]
+
+    assert len(worksheet.tables) == 1
+
+    table = next(
+        iter(worksheet.tables.values())
+    )
+
+    assert table.displayName == "ExportData"
+    assert table.ref == "A1:C3"
+
+    assert table.tableStyleInfo is not None
+    assert (
+        table.tableStyleInfo.name
+        == "TableStyleMedium2"
+    )
+
+    assert (
+        table.tableStyleInfo.showRowStripes
+        is True
+    )
+
+class NoExcelTableDemoPage(DemoPage):
+
+    def use_excel_table_for_export(
+        self,
+    ) -> bool:
+        return False
+
+def test_export_can_disable_excel_table(
+    tmp_path,
+):
+    page = NoExcelTableDemoPage()
+
+    dataframe = pd.DataFrame(
+        [
+            {
+                "Code": "D001",
+                "Quantity": 10,
+            }
+        ]
+    )
+
+    file_path = (
+        tmp_path
+        / "no_excel_table.xlsx"
+    )
+
+    page.write_export_workbook(
+        dataframe=dataframe,
+        file_path=file_path,
+    )
+
+    workbook = load_workbook(file_path)
+    worksheet = workbook["Data"]
+
+    assert len(worksheet.tables) == 0
