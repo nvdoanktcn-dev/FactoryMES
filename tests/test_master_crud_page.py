@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 from types import SimpleNamespace
 from PySide6.QtWidgets import (
     QDialog,
@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
 )
 from src.ui.framework.master_crud_page import MasterCRUDPage
 from tests.qt_test_utils import get_test_app
+from openpyxl import load_workbook
+import pandas as pd
 
 app = get_test_app()
 
@@ -220,3 +222,118 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+import re
+
+def test_suggested_export_name_contains_timestamp():
+    page = DemoPage()
+    assert re.fullmatch(
+        r"demo_master_\d{8}_\d{6}\.xlsx",
+        page.get_suggested_export_name(),
+    )
+
+def test_write_export_workbook_creates_information_sheet(
+    tmp_path,
+):
+    page = DemoPage()
+
+    dataframe = pd.DataFrame(
+        [
+            {
+                "Code": "D001",
+                "Name": "Demo One",
+                "Status": "ACTIVE",
+            },
+            {
+                "Code": "D002",
+                "Name": "Demo Two",
+                "Status": "INACTIVE",
+            },
+        ]
+    )
+
+    target = (
+        tmp_path
+        / "demo_export.xlsx"
+    )
+
+    page.write_export_workbook(
+        dataframe=dataframe,
+        file_path=str(target),
+    )
+
+    workbook = load_workbook(
+        target
+    )
+
+    assert workbook.sheetnames == [
+        "Data",
+        "Information",
+    ]
+
+    data_sheet = workbook["Data"]
+
+    assert data_sheet.freeze_panes == "A2"
+    assert data_sheet.auto_filter.ref == "A1:C3"
+
+    information_sheet = workbook[
+        "Information"
+    ]
+
+    assert (
+        information_sheet["A1"].value
+        == "Field"
+    )
+
+    assert (
+        information_sheet["B1"].value
+        == "Value"
+    )
+
+    metadata = {
+        information_sheet.cell(
+            row=row,
+            column=1,
+        ).value:
+        information_sheet.cell(
+            row=row,
+            column=2,
+        ).value
+        for row in range(
+            2,
+            information_sheet.max_row + 1,
+        )
+    }
+
+    assert metadata["Application"] == "FactoryMES"
+    assert metadata["Module"] == "Demo"
+    assert metadata["Records"] == 2
+    assert (
+        metadata["Search Keyword"]
+        or ""
+    ) == ""
+
+    assert isinstance(
+        metadata["Export Time"],
+        str,
+    )
+
+    assert information_sheet.freeze_panes == "A2"
+
+def test_export_metadata_contains_search_keyword():
+    page = DemoPage()
+
+    page.handle_search(
+        "D001"
+    )
+
+    metadata = page.build_export_metadata(
+        record_count=1
+    )
+
+    assert metadata["Module"] == "Demo"
+    assert metadata["Records"] == 1
+    assert (
+        metadata["Search Keyword"]
+        or "D001"
+    ) == "D001"
