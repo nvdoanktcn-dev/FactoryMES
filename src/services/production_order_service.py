@@ -14,6 +14,13 @@ from src.models.production_order import (
 from src.repository.production_order_repository import (
     ProductionOrderRepository,
 )
+from src.framework.exception import NotFoundError
+from src.models.production_assignment import (
+    ProductionAssignment,
+)
+from src.services.production_execution_service import (
+    ProductionExecutionService,
+)
 
 
 class ProductionOrderService(BaseService):
@@ -52,6 +59,9 @@ class ProductionOrderService(BaseService):
             ProductionOrderRepository(
                 self.session
             )
+        )
+        self.execution_service = ProductionExecutionService(
+            session=self.session
         )
 
     # ==========================================================
@@ -404,6 +414,86 @@ class ProductionOrderService(BaseService):
 
         return production_order
 
+    def complete_from_assignment(
+        self,
+        assignment_id,
+        actual_finish=None,
+    ):
+        """
+        Complete a Production Order using finalized Execution results
+        belonging to one completed Production Assignment.
+        """
+        assignment = self._require_assignment(
+            assignment_id
+        )
+
+        if assignment.status != "COMPLETED":
+            raise ValueError(
+                (
+                    "Assignment must be COMPLETED before "
+                    "completing Production Order."
+                )
+            )
+
+        production_order = self._require_order_by_id(
+            assignment.production_order_id
+        )
+
+        executions = (
+            self.execution_service
+            .get_by_assignment_id(
+                assignment.id
+            )
+        )
+
+        if any(
+            execution.status
+            == self.execution_service.STATUS_RUNNING
+            for execution in executions
+        ):
+            raise ValueError(
+                (
+                    "Cannot complete Production Order while "
+                    "Assignment has a RUNNING execution."
+                )
+            )
+
+        totals = (
+            self.execution_service
+            .aggregate_assignment_quantities(
+                assignment.id
+            )
+        )
+
+        if totals["execution_count"] == 0:
+            raise ValueError(
+                (
+                    "Assignment must have at least one "
+                    "STOPPED or COMPLETED execution."
+                )
+            )
+
+        total_qty = (
+            totals["ok_qty"]
+            + totals["ng_qty"]
+        )
+
+        if total_qty > production_order.plan_qty:
+            raise ValueError(
+                (
+                    "Execution OK Qty + NG Qty cannot "
+                    "be greater than Production Order Plan Qty."
+                )
+            )
+
+        return self.complete(
+            production_order.work_order_no,
+            production_order.operation_no,
+            completed_qty=totals["ok_qty"],
+            ng_qty=totals["ng_qty"],
+            actual_finish=actual_finish,
+        )
+
     def cancel(
         self,
         work_order_no,
@@ -512,7 +602,7 @@ class ProductionOrderService(BaseService):
                     "must be COMPLETED before starting "
                     f"OP{production_order.operation_no}."
                 )
-            )    
+            )
 
     def _require_order(
         self,
@@ -531,6 +621,79 @@ class ProductionOrderService(BaseService):
                 (
                     "Production Order not found: "
                     f"{work_order_no} / OP{operation_no}"
+                )
+            )
+
+        return production_order
+
+    def _require_assignment(
+        self,
+        assignment_id,
+    ):
+        try:
+            normalized_id = int(
+                assignment_id
+            )
+        except (TypeError, ValueError) as error:
+            raise NotFoundError(
+                (
+                    "Production Assignment not found: "
+                    f"{assignment_id}"
+                )
+            ) from error
+
+        assignment = (
+            self.session
+            .query(ProductionAssignment)
+            .filter(
+                ProductionAssignment.id
+                == normalized_id
+            )
+            .first()
+        )
+
+        if assignment is None:
+            raise NotFoundError(
+                (
+                    "Production Assignment not found: "
+                    f"{assignment_id}"
+                )
+            )
+
+        return assignment
+
+
+    def _require_order_by_id(
+        self,
+        production_order_id,
+    ):
+        try:
+            normalized_id = int(
+                production_order_id
+            )
+        except (TypeError, ValueError) as error:
+            raise NotFoundError(
+                (
+                    "Production Order not found: "
+                    f"{production_order_id}"
+                )
+            ) from error
+
+        production_order = (
+            self.session
+            .query(self.repository.model)
+            .filter(
+                self.repository.model.id
+                == normalized_id
+            )
+            .first()
+        )
+
+        if production_order is None:
+            raise NotFoundError(
+                (
+                    "Production Order not found: "
+                    f"{production_order_id}"
                 )
             )
 
