@@ -37,6 +37,8 @@ from src.utils.paths import asset_path  # noqa: E402
 
 logger = get_logger(__name__)
 
+LOGOUT_EXIT_CODE = 1001
+
 
 def qt_message_handler(mode, context, message: str) -> None:
     """Ghi lại cảnh báo Qt để hỗ trợ chẩn đoán lỗi giao diện."""
@@ -118,29 +120,44 @@ def run_application(config: AppConfig) -> int:
         close_all_sessions
     )
 
-    login_service = ApplicationLoginService()
-    try:
-        current_user = login_service.request_user()
-    finally:
-        login_service.close()
+    while True:  # login loop
+        login_service = ApplicationLoginService()
+        try:
+            current_user = login_service.request_user()
+        finally:
+            login_service.close()
 
-    if current_user is None:
-        logger.info("Login was cancelled.")
-        return 0
+        if current_user is None:
+            logger.info("Login was cancelled.")
+            return 0
 
-    window = MainWindow(
-        current_user=current_user
-    )
-    window.show()
+        window = MainWindow(
+            current_user=current_user
+        )
 
-    exit_code = app.exec()
+        def switch_user():
+            window.close()
+            app.exit(LOGOUT_EXIT_CODE)
 
-    logger.info(
-        "Application closed with exit code %s.",
-        exit_code,
-    )
+        window.logout_requested.connect(
+            switch_user
+        )
+        window.show()
 
-    return int(exit_code)
+        exit_code = app.exec()
+
+        if int(exit_code) == LOGOUT_EXIT_CODE:
+            logger.info(
+                "User %s logged out.",
+                current_user.username,
+            )
+            continue
+
+        logger.info(
+            "Application closed with exit code %s.",
+            exit_code,
+        )
+        return int(exit_code)
 
 
 def main() -> NoReturn:

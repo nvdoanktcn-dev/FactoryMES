@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -37,6 +37,8 @@ class MainWindow(QMainWindow):
     - Quản lý theme.
     - Đóng controller/service/session khi thoát ứng dụng.
     """
+
+    logout_requested = Signal()
 
     DEFAULT_PAGE = "Dashboard"
 
@@ -93,6 +95,11 @@ class MainWindow(QMainWindow):
 
         self.btn_theme = QPushButton(
             "🌙 Theme",
+            self,
+        )
+
+        self.btn_logout = QPushButton(
+            "Logout",
             self,
         )
 
@@ -204,6 +211,14 @@ class MainWindow(QMainWindow):
             "FactoryMESThemeButton"
         )
 
+        self.btn_logout.setObjectName(
+            "FactoryMESLogoutButton"
+        )
+
+        self.btn_logout.setMinimumWidth(
+            90
+        )
+
         self.btn_theme.setMinimumWidth(
             110
         )
@@ -211,6 +226,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(
             self.title_label,
             1,
+        )
+
+        layout.addWidget(
+            self.btn_logout
         )
 
         layout.addWidget(
@@ -379,6 +398,10 @@ class MainWindow(QMainWindow):
 
         self.btn_theme.clicked.connect(
             self.toggle_theme
+        )
+
+        self.btn_logout.clicked.connect(
+            self.request_logout
         )
 
     # ==========================================================
@@ -729,9 +752,13 @@ class MainWindow(QMainWindow):
 
             return False
 
+    def request_logout(
+        self,
+    ) -> None:
+        self.logout_requested.emit()
+
     # ==========================================================
-    # Theme
-    # ==========================================================
+    # Theme    # ==========================================================
 
     def toggle_theme(
         self,
