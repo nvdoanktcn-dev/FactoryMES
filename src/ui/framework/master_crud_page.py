@@ -818,20 +818,151 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
         dataframe,
         file_path,
     ):
-        with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
-            dataframe.to_excel(writer, sheet_name="Data", index=False)
+        with pd.ExcelWriter(
+            file_path,
+            engine="openpyxl",    
+        ) as writer:
+            dataframe.to_excel(
+                writer,
+                sheet_name="Data",
+                index=False,
+            )
+    
             worksheet = writer.sheets["Data"]
+
             worksheet.freeze_panes = "A2"
+
             if worksheet.max_column:
                 worksheet.auto_filter.ref = (
-                    f"A1:{get_column_letter(worksheet.max_column)}{worksheet.max_row}"
+                    f"A1:"
+                    f"{get_column_letter(worksheet.max_column)}"
+                    f"{worksheet.max_row}"
                 )
+
             for cell in worksheet[1]:
                 cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-            for idx, column in enumerate(dataframe.columns, start=1):
-                values = [str(column)] + ["" if v is None else str(v) for v in dataframe[column].tolist()]
-                worksheet.column_dimensions[get_column_letter(idx)].width = min(max(max(map(len, values))+2,10),50)
+                cell.alignment = Alignment(
+                    horizontal="center",    
+                    vertical="center",
+                )    
+
+            for column_index, column_name in enumerate(
+                dataframe.columns,
+                start=1,
+            ):
+                values = [
+                    str(column_name),
+                    *[
+                            ""
+                        if value is None
+                        else str(value)
+                        for value in dataframe[
+                            column_name
+                        ].tolist()
+                    ]    ,    
+                ]
+
+                maximum_length = max(
+                    len(value)
+                    for value in values
+                )
+
+                width = min(    
+                    max(
+                        maximum_length + 2,
+                        10,
+                    ),
+                    50,
+                )
+
+                column_letter = get_column_letter(
+                    column_index
+                )
+
+                worksheet.column_dimensions[
+                    column_letter
+                ].width = width
+
+            self.write_export_information_sheet(
+                workbook=writer.book,
+                record_count=len(dataframe),
+            )
+
+    def build_export_metadata(
+        self,
+        *,
+        record_count,
+    ):
+        """
+        Trả về metadata mặc định của workbook export.
+
+        Page con có thể override để bổ sung thông tin riêng.
+        """
+        return {
+            "Application": "FactoryMES",
+            "Module": self.ENTITY_NAME,
+            "Export Time": datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ),
+            "Records": record_count,
+            "Search Keyword": (
+                self.current_keyword
+                or ""
+            ),
+        }
+
+
+    def write_export_information_sheet(
+        self,
+        *,
+        workbook,
+        record_count,
+    ):
+        """
+        Tạo sheet Information chứa metadata export.
+        """
+        worksheet = workbook.create_sheet(
+            title="Information"
+        )
+
+        metadata = self.build_export_metadata(
+            record_count=record_count
+        )
+
+        worksheet.append(
+            [
+                "Field",
+                "Value",
+            ]
+        )
+
+        for field, value in metadata.items():
+            worksheet.append(    
+                [
+                    field,
+                    value,
+                ]
+            )
+
+        for cell in worksheet[1]:
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(
+                horizontal="center",
+                    vertical="center",
+            )
+
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = (
+            f"A1:B{worksheet.max_row}"
+        )
+
+        worksheet.column_dimensions[
+            "A"
+        ].width = 22
+
+        worksheet.column_dimensions[
+            "B"
+        ].width = 32
 
     def get_suggested_export_name(self):
         default = Path(self.get_default_export_name())
