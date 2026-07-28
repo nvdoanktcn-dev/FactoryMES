@@ -889,6 +889,9 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
                 workbook=writer.book,
                 record_count=len(dataframe),
             )
+            self.post_process_export_workbook(
+                writer.book
+            )
 
     def format_export_data_sheet(self, worksheet):
         """Apply explicit and automatic number formats."""
@@ -1017,6 +1020,15 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
         }
         """
         return {}
+
+    def post_process_export_workbook(
+        self,
+        workbook,
+    ):
+        """
+        Hook cho page con tùy biến workbook sau khi
+        Data và Information đã được tạo.
+        """
 
     def get_suggested_export_name(self):
         default = Path(self.get_default_export_name())

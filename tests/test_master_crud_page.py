@@ -391,3 +391,50 @@ def test_explicit_export_column_formats_override_defaults(tmp_path):
         ).number_format
         == "0.00%"
     )
+
+class WorkbookHookDemoPage(DemoPage):
+
+    def post_process_export_workbook(
+        self,
+        workbook,
+    ):
+        worksheet = workbook.create_sheet(
+            title="Summary"
+        )
+
+        worksheet["A1"] = "Generated"
+        worksheet["B1"] = True
+
+def test_post_process_export_workbook_hook(
+    tmp_path,
+):
+    page = WorkbookHookDemoPage()
+
+    dataframe = pd.DataFrame(
+        [
+            {
+                "Code": "D001",
+                "Quantity": 10,
+            }
+        ]
+    )
+
+    file_path = tmp_path / "hook_export.xlsx"
+
+    page.write_export_workbook(
+        dataframe=dataframe,
+        file_path=file_path,
+    )
+
+    workbook = load_workbook(file_path)
+
+    assert workbook.sheetnames == [
+        "Data",
+        "Information",
+        "Summary",
+    ]
+
+    summary = workbook["Summary"]
+
+    assert summary["A1"].value == "Generated"
+    assert summary["B1"].value is True
