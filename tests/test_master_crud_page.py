@@ -1,6 +1,12 @@
-﻿import sys
+﻿from datetime import date, datetime
+import re
+import sys
 from types import SimpleNamespace
+
+from openpyxl import load_workbook
+import pandas as pd
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFormLayout,
     QHBoxLayout,
@@ -11,12 +17,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from src.ui.framework.master_crud_page import MasterCRUDPage
 from tests.qt_test_utils import get_test_app
-from openpyxl import load_workbook
-import pandas as pd
-from datetime import date, datetime
-from PySide6.QtWidgets import QApplication
 
 app = get_test_app()
 
@@ -30,58 +33,33 @@ class DemoDialog(QDialog):
         super().__init__(parent)
 
         self.record = record
-
-        self.setWindowTitle(
-            "Demo Record"
-        )
+        self.setWindowTitle("Demo Record")
 
         self.code = QLineEdit()
         self.name = QLineEdit()
 
         if record is not None:
-            self.code.setText(
-                record.code
-            )
+            self.code.setText(record.code)
             self.code.setReadOnly(True)
-
-            self.name.setText(
-                record.name
-            )
+            self.name.setText(record.name)
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
-        form.addRow(
-            "Code",
-            self.code,
-        )
+        form.addRow("Code", self.code)
+        form.addRow("Name", self.name)
 
-        form.addRow(
-            "Name",
-            self.name,
-        )
-
-        btn_save = QPushButton(
-            "Save"
-        )
-
-        btn_save.clicked.connect(
-            self.accept
-        )
+        btn_save = QPushButton("Save")
+        btn_save.clicked.connect(self.accept)
 
         layout.addLayout(form)
         layout.addWidget(btn_save)
 
     def get_data(self):
         return {
-            "code":
-                self.code.text().strip().upper(),
-
-            "name":
-                self.name.text().strip(),
-
-            "status":
-                "ACTIVE",
+            "code": self.code.text().strip().upper(),
+            "name": self.name.text().strip(),
+            "status": "ACTIVE",
         }
 
 
@@ -94,9 +72,7 @@ class DemoPage(MasterCRUDPage):
         "Status",
     ]
 
-    DEFAULT_EXPORT_NAME = (
-        "demo_master.xlsx"
-    )
+    DEFAULT_EXPORT_NAME = "demo_master.xlsx"
 
     def __init__(self):
         self.demo_records = [
@@ -120,13 +96,8 @@ class DemoPage(MasterCRUDPage):
 
         self.initialize_page()
 
-    def load_records(
-        self,
-        keyword,
-    ):
-        keyword = str(
-            keyword or ""
-        ).strip().lower()
+    def load_records(self, keyword):
+        keyword = str(keyword or "").strip().lower()
 
         if not keyword:
             return self.demo_records
@@ -135,10 +106,8 @@ class DemoPage(MasterCRUDPage):
             record
             for record in self.demo_records
             if (
-                keyword
-                in record.code.lower()
-                or keyword
-                in record.name.lower()
+                keyword in record.code.lower()
+                or keyword in record.name.lower()
             )
         ]
 
@@ -155,19 +124,13 @@ class DemoPage(MasterCRUDPage):
         return record.code
 
     @staticmethod
-    def create_dialog(
-        parent=None,
-        record=None,
-    ):
+    def create_dialog(parent=None, record=None):
         return DemoDialog(
             parent=parent,
             record=record,
         )
 
-    def create_record(
-        self,
-        data,
-    ):
+    def create_record(self, data):
         self.demo_records.append(
             SimpleNamespace(
                 code=data["code"],
@@ -176,56 +139,36 @@ class DemoPage(MasterCRUDPage):
             )
         )
 
-    def update_record(
-        self,
-        record_key,
-        data,
-    ):
+    def update_record(self, record_key, data):
         for record in self.demo_records:
             if record.code == record_key:
                 record.name = data["name"]
                 record.status = data["status"]
                 return record
 
-        raise ValueError(
-            f"Demo not found: {record_key}"
-        )
+        raise ValueError(f"Demo not found: {record_key}")
 
-    def delete_record(
-        self,
-        record_key,
-    ):
+    def delete_record(self, record_key):
         for record in self.demo_records:
             if record.code == record_key:
                 record.status = "INACTIVE"
                 return record
 
-        raise ValueError(
-            f"Demo not found: {record_key}"
-        )
+        raise ValueError(f"Demo not found: {record_key}")
 
-
-from tests.qt_test_utils import get_test_app
-
-app = get_test_app()
 
 def main():
     page = DemoPage()
-
-    page.resize(
-        1100,
-        650,
-    )
-
+    page.resize(1100, 650)
     page.show()
-
     return app.exec()
 
 
 if __name__ == "__main__":
     sys.exit(main())
 
-import re
+
+# --- Unit Tests ---
 
 def test_suggested_export_name_contains_timestamp():
     page = DemoPage()
@@ -234,9 +177,8 @@ def test_suggested_export_name_contains_timestamp():
         page.get_suggested_export_name(),
     )
 
-def test_write_export_workbook_creates_information_sheet(
-    tmp_path,
-):
+
+def test_write_export_workbook_creates_information_sheet(tmp_path):
     page = DemoPage()
 
     dataframe = pd.DataFrame(
@@ -254,19 +196,14 @@ def test_write_export_workbook_creates_information_sheet(
         ]
     )
 
-    target = (
-        tmp_path
-        / "demo_export.xlsx"
-    )
+    target = tmp_path / "demo_export.xlsx"
 
     page.write_export_workbook(
         dataframe=dataframe,
         file_path=str(target),
     )
 
-    workbook = load_workbook(
-        target
-    )
+    workbook = load_workbook(target)
 
     assert workbook.sheetnames == [
         "Data",
@@ -278,26 +215,16 @@ def test_write_export_workbook_creates_information_sheet(
     assert data_sheet.freeze_panes == "A2"
     assert data_sheet.auto_filter.ref == "A1:C3"
 
-    information_sheet = workbook[
-        "Information"
-    ]
+    information_sheet = workbook["Information"]
 
-    assert (
-        information_sheet["A1"].value
-        == "Field"
-    )
-
-    assert (
-        information_sheet["B1"].value
-        == "Value"
-    )
+    assert information_sheet["A1"].value == "Field"
+    assert information_sheet["B1"].value == "Value"
 
     metadata = {
         information_sheet.cell(
             row=row,
             column=1,
-        ).value:
-        information_sheet.cell(
+        ).value: information_sheet.cell(
             row=row,
             column=2,
         ).value
@@ -310,38 +237,26 @@ def test_write_export_workbook_creates_information_sheet(
     assert metadata["Application"] == "FactoryMES"
     assert metadata["Module"] == "Demo"
     assert metadata["Records"] == 2
-    assert (
-        metadata["Search Keyword"]
-        or ""
-    ) == ""
-
+    assert (metadata["Search Keyword"] or "") == ""
     assert isinstance(
         metadata["Export Time"],
         str,
     )
-
     assert information_sheet.freeze_panes == "A2"
+
 
 def test_export_metadata_contains_search_keyword():
     page = DemoPage()
+    page.handle_search("D001")
 
-    page.handle_search(
-        "D001"
-    )
-
-    metadata = page.build_export_metadata(
-        record_count=1
-    )
+    metadata = page.build_export_metadata(record_count=1)
 
     assert metadata["Module"] == "Demo"
     assert metadata["Records"] == 1
-    assert (
-        metadata["Search Keyword"]
-        or "D001"
-    ) == "D001"
-def test_write_export_workbook_formats_data_cells(
-    tmp_path,
-):
+    assert (metadata["Search Keyword"] or "D001") == "D001"
+
+
+def test_write_export_workbook_formats_data_cells(tmp_path):
     app = QApplication.instance()
 
     if app is None:
@@ -422,4 +337,57 @@ def test_write_export_workbook_formats_data_cells(
             column=headers["Active"],
         ).number_format
         == "General"
+    )
+
+
+class FormattedDemoPage(DemoPage):
+    def get_export_column_formats(self):
+        return {
+            "Rate": "0.0000",
+            "OEE": "0.00%",
+        }
+
+
+def test_explicit_export_column_formats_override_defaults(tmp_path):
+    page = FormattedDemoPage()
+
+    dataframe = pd.DataFrame(
+        [
+            {
+                "Code": "D001",
+                "Rate": 12.5,
+                "OEE": 0.9567,
+            }
+        ]
+    )
+
+    file_path = tmp_path / "explicit_formats.xlsx"
+
+    page.write_export_workbook(
+        dataframe=dataframe,
+        file_path=file_path,
+    )
+
+    workbook = load_workbook(file_path)
+    worksheet = workbook["Data"]
+
+    headers = {
+        cell.value: cell.column
+        for cell in worksheet[1]
+    }
+
+    assert (
+        worksheet.cell(
+            row=2,
+            column=headers["Rate"],
+        ).number_format
+        == "0.0000"
+    )
+
+    assert (
+        worksheet.cell(
+            row=2,
+            column=headers["OEE"],
+        ).number_format
+        == "0.00%"
     )
