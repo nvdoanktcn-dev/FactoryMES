@@ -28,6 +28,63 @@ class ProductionExecutionService(SessionOwnedService):
 
     def get_by_assignment_id(self, assignment_id):
         return self.repository.get_by_assignment_id(assignment_id)
+    def aggregate_assignment_quantities(
+        self,
+        assignment_id,
+    ):
+        """
+        Aggregate valid execution results for one assignment.
+
+        CANCELLED and RUNNING executions are excluded because they do
+        not represent finalized production results.
+        """
+        assignment = self._require_assignment(
+            assignment_id
+        )
+
+        executions = self.repository.get_by_assignment_id(
+            assignment.id
+        )
+    
+        included_statuses = {
+            self.STATUS_STOPPED,
+            self.STATUS_COMPLETED,
+        }
+
+        included_executions = [
+            execution
+                for execution in executions
+            if execution.status in included_statuses
+        ]
+
+        return {
+            "assignment_id": assignment.id,
+            "execution_count": len(included_executions),
+            "ok_qty": sum(
+                execution.ok_qty or 0
+                for execution in included_executions
+            ),
+            "ng_qty": sum(
+                execution.ng_qty or 0
+                for execution in included_executions
+            ),
+            "processing_ng_qty": sum(
+                execution.processing_ng_qty or 0
+                for execution in included_executions
+            ),
+            "blank_ng_qty": sum(
+                execution.blank_ng_qty or 0
+                for execution in included_executions
+            ),
+            "runtime_minutes": sum(
+                execution.runtime_minutes or 0.0
+                for execution in included_executions
+            ),
+            "downtime_minutes": sum(
+                execution.downtime_minutes or 0.0
+                for execution in included_executions
+            ),
+        }
 
     def start_execution(self, assignment_id, start_time=None, remark=None):
         assignment = self._require_assignment(assignment_id)
