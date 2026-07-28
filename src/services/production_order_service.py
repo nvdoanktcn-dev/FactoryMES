@@ -82,6 +82,16 @@ class ProductionOrderService(BaseService):
             work_order_no
         )
 
+    def get_previous_operation(
+        self,
+        work_order_no,
+        operation_no,
+    ):
+        return self.repository.get_previous_operation(
+            work_order_no,
+            operation_no,
+        )
+
     def get_open_orders(self):
         return self.repository.get_open_orders()
 
@@ -310,6 +320,20 @@ class ProductionOrderService(BaseService):
             operation_no,
         )
 
+        if production_order.status != (
+            self.STATUS_RELEASED
+        ):
+            raise ValueError(
+                (
+                    "Only RELEASED Production Orders "
+                    "can be started."
+                )
+            )
+
+        self._validate_previous_operation_completed(
+            production_order
+        )
+
         production_order.status = (
             self.STATUS_IN_PROGRESS
         )
@@ -463,6 +487,32 @@ class ProductionOrderService(BaseService):
     # ==========================================================
     # Internal
     # ==========================================================
+
+    def _validate_previous_operation_completed(
+        self,
+        production_order,
+    ):
+        previous_operation = (
+            self.repository.get_previous_operation(
+                production_order.work_order_no,
+                production_order.operation_no,
+            )
+        )
+
+        if previous_operation is None:
+            return
+
+        if previous_operation.status != (
+            self.STATUS_COMPLETED
+        ):
+            raise ValueError(
+                (
+                    f"Previous operation OP"
+                    f"{previous_operation.operation_no} "
+                    "must be COMPLETED before starting "
+                    f"OP{production_order.operation_no}."
+                )
+            )    
 
     def _require_order(
         self,

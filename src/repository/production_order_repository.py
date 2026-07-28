@@ -161,6 +161,43 @@ class ProductionOrderRepository(
             .all()
         )
 
+    def get_previous_operation(
+        self,
+        work_order_no,
+        operation_no,
+    ):
+        number = str(
+            work_order_no or ""
+        ).strip().upper()
+
+        try:
+            operation = int(
+                operation_no
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return None
+
+        if not number:
+            return None
+
+        return (
+            self.session
+            .query(ProductionOrder)
+            .filter(
+                ProductionOrder.work_order_no
+                == number,
+                ProductionOrder.operation_no
+                < operation,
+            )
+            .order_by(
+                ProductionOrder.operation_no.desc()
+            )
+            .first()
+        )
+
     def get_last_operation(
         self,
         work_order_no,
