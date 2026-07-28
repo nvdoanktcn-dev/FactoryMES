@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -883,12 +884,20 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
                     column_letter
                 ].width = width
 
-            self.format_export_data_sheet(worksheet)
+            self.format_export_data_sheet(
+                worksheet
+            )
+            
+            if self.use_excel_table_for_export():
+                self.create_export_table(
+                    worksheet
+                )
 
             self.write_export_information_sheet(
                 workbook=writer.book,
-                record_count=len(dataframe),
+                            record_count=len(dataframe),
             )
+
             self.post_process_export_workbook(
                 writer.book
             )
@@ -1057,6 +1066,64 @@ class MasterCRUDPage(BasePage, ABC, metaclass=QABCMeta):
                 self.headers
             )
         }
+
+    def use_excel_table_for_export(self) -> bool:
+        """
+        Return whether the Data worksheet should use an Excel table.
+        """
+        return True
+
+
+    def get_export_table_name(self) -> str:
+        """
+        Return the Excel table display name.
+    
+        The name must not contain spaces.
+        """
+        return "ExportData"
+    
+
+    def get_export_table_style(self) -> str:
+        """
+        Return the built-in Excel table style name.
+        """
+        return "TableStyleMedium2"
+
+    def create_export_table(
+        self,
+        worksheet,
+    ) -> None:
+        """
+        Convert the populated Data worksheet range into an Excel table.
+        """
+        if worksheet.max_row < 2:
+            return
+
+        if worksheet.max_column < 1:
+            return
+
+        last_column = get_column_letter(
+            worksheet.max_column
+        )
+
+        table_reference = (
+            f"A1:{last_column}{worksheet.max_row}"
+        )
+
+        table = Table(
+            displayName=self.get_export_table_name(),
+            ref=table_reference,
+        )
+
+        table.tableStyleInfo = TableStyleInfo(
+            name=self.get_export_table_style(),
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+
+        worksheet.add_table(table)
 
     # ==========================================================
     # Context menu
