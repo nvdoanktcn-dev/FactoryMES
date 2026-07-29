@@ -79,3 +79,56 @@ class ProductionExecutionFactory:
         session.flush()
 
         return execution
+
+    @classmethod
+    def create_stopped(
+        cls,
+        session,
+        assignment=None,
+    ):
+        execution = cls.create_running(
+            session,
+            assignment,
+        )
+
+        service = ProductionExecutionService(
+            session=session
+        )
+
+        execution = service.stop_execution(
+            execution.id,
+            ok_qty=100,
+            ng_qty=0,
+            processing_ng_qty=0,
+            blank_ng_qty=0,
+            downtime_minutes=0,
+            end_time="2026-07-20 12:00",
+            complete=False,
+        )    
+
+        session.flush()
+
+        return execution
+
+    @classmethod
+    def create_cancelled(
+        cls,
+        session,
+        assignment=None,
+    ):
+        execution = cls.create_running(
+            session,
+            assignment,
+        )
+
+        service = ProductionExecutionService(
+            session=session
+        )
+
+        execution = service.cancel_execution(
+            execution.id
+        )
+
+        session.flush()
+
+        return execution

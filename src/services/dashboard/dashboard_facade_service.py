@@ -29,6 +29,10 @@ from src.services.manufacturing_analytics_service import (
 from src.services.system_status_service import (
     SystemStatusService,
 )
+
+from src.services.alarm_service import (
+    AlarmService,
+)
 from src.core.logging_config import (
     get_logger,
 )
@@ -71,21 +75,20 @@ class DashboardFacadeService(SessionOwnedService):
         status_service: Optional[
             SystemStatusService
         ] = None,
+        alarm_service: Optional[
+            AlarmService
+        ] = None,
         cache: Optional[
             DashboardCache
         ] = None,
     ):
         super().__init__(session=session)
 
-        self._owns_analytics_service = (
-            analytics_service is None
-        )
         self.analytics_service = (
-            ManufacturingAnalyticsService(
+            analytics_service
+            or ManufacturingAnalyticsService(
                 session=self.require_session()
             )
-            if analytics_service is None
-            else analytics_service
         )
 
         self.chart_service = (
@@ -96,6 +99,20 @@ class DashboardFacadeService(SessionOwnedService):
         self.status_service = (
             status_service
             or SystemStatusService()
+        )
+
+        # Giai đoạn 7 (MES Real-time, 2026-07-28): trước đây
+        # `alarms` luôn là [] vì không có nguồn dữ liệu thật nào
+        # đứng sau (xem `_section(analytics, "alarms", [])` bên
+        # dưới, phần "analytics" chưa từng có khoá "alarms"). Alarm
+        # là một khái niệm KHÔNG phụ thuộc filter ngày/máy/ca của
+        # Dashboard - nên lấy trực tiếp từ AlarmService thay vì đi
+        # qua ManufacturingAnalyticsService, xem `_build_alarms()`.
+        self.alarm_service = (
+            alarm_service
+            or AlarmService(
+                session=self.require_session()
+            )
         )
 
         self.cache = (
@@ -116,11 +133,26 @@ class DashboardFacadeService(SessionOwnedService):
             None,
         )
 
-        if (
-            self._owns_analytics_service
-            and callable(analytics_close)
-        ):
+        if callable(analytics_close):
             analytics_close()
+
+        status_close = getattr(
+            self.status_service,
+            "close",
+            None,
+        )
+
+        if callable(status_close):
+            status_close()
+
+        alarm_close = getattr(
+            self.alarm_service,
+            "close",
+            None,
+        )
+
+        if callable(alarm_close):
+            alarm_close()
 
         super().close()
 
@@ -210,11 +242,7 @@ class DashboardFacadeService(SessionOwnedService):
                 [],
             ),
 
-            alarms=self._section(
-                analytics,
-                "alarms",
-                [],
-            ),
+            alarms=self._build_alarms(),
         )
 
         self.cache.put(
@@ -299,6 +327,40 @@ class DashboardFacadeService(SessionOwnedService):
             )
 
         return charts
+
+    def _build_alarms(self):
+        """
+        Lấy Alarm thật (OPEN/ACKNOWLEDGED, mới nhất trước) cho bảng
+        AlarmTable trên Dashboard và sheet "Alarms" khi export. Nếu
+        AlarmService lỗi vì bất kỳ lý do gì, Dashboard vẫn phải build
+        được bình thường (giống `_build_status()`) - chỉ phần Alarm
+        trống, không làm sập toàn bộ Dashboard.
+        """
+
+        try:
+            alarms = (
+                self.alarm_service.get_open_alarms(
+                    limit=100
+                )
+            )
+        except Exception as error:  # noqa: BLE001
+            logger.warning(
+                "Could not load Alarms for Dashboard: "
+                f"{error}"
+            )
+            return []
+
+        return [
+            {
+                "time": alarm.raised_at,
+                "level": alarm.severity,
+                "module": alarm.machine_code,
+                "code": alarm.alarm_code,
+                "message": alarm.message,
+                "status": alarm.status,
+            }
+            for alarm in alarms
+        ]
 
     def _build_status(self):
         """

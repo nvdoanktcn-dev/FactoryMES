@@ -8,15 +8,14 @@ from src.framework.exception import (
     DuplicateError,
     NotFoundError,
 )
+from src.models.production_assignment import (
+    ProductionAssignment,
+)
 from src.models.production_order import (
     ProductionOrder,
 )
 from src.repository.production_order_repository import (
     ProductionOrderRepository,
-)
-from src.framework.exception import NotFoundError
-from src.models.production_assignment import (
-    ProductionAssignment,
 )
 from src.services.production_execution_service import (
     ProductionExecutionService,
@@ -46,23 +45,11 @@ class ProductionOrderService(BaseService):
     ):
         super().__init__()
 
-        self._owns_session = (
-            session is None
-        )
+        self._owns_session = session is None
 
-        self.session = (
-            session
-            or get_session()
-        )
+        self.session = session or get_session()
 
-        self.repository = (
-            ProductionOrderRepository(
-                self.session
-            )
-        )
-        self.execution_service = ProductionExecutionService(
-            session=self.session
-        )
+        self.repository = ProductionOrderRepository(self.session)
 
     # ==========================================================
     # Query
@@ -76,31 +63,16 @@ class ProductionOrderService(BaseService):
         work_order_no,
         operation_no,
     ):
-        return (
-            self.repository
-            .get_by_work_order_operation(
-                work_order_no,
-                operation_no,
-            )
+        return self.repository.get_by_work_order_operation(
+            work_order_no,
+            operation_no,
         )
 
     def get_by_work_order(
         self,
         work_order_no,
     ):
-        return self.repository.get_by_work_order(
-            work_order_no
-        )
-
-    def get_previous_operation(
-        self,
-        work_order_no,
-        operation_no,
-    ):
-        return self.repository.get_previous_operation(
-            work_order_no,
-            operation_no,
-        )
+        return self.repository.get_by_work_order(work_order_no)
 
     def get_open_orders(self):
         return self.repository.get_open_orders()
@@ -109,9 +81,7 @@ class ProductionOrderService(BaseService):
         self,
         work_order_no,
     ):
-        return self.repository.get_last_operation(
-            work_order_no
-        )
+        return self.repository.get_last_operation(work_order_no)
 
     # ==========================================================
     # Create
@@ -121,47 +91,29 @@ class ProductionOrderService(BaseService):
         self,
         data,
     ):
-        normalized = self._normalize_data(
-            data
-        )
+        normalized = self._normalize_data(data)
 
-        self._validate_data(
-            normalized
-        )
+        self._validate_data(normalized)
 
-        work_order_no = normalized[
-            "work_order_no"
-        ]
+        work_order_no = normalized["work_order_no"]
 
-        operation_no = normalized[
-            "operation_no"
-        ]
+        operation_no = normalized["operation_no"]
 
         if self.repository.exists(
             work_order_no,
             operation_no,
         ):
             raise DuplicateError(
-                (
-                    "Production Order already exists: "
-                    f"{work_order_no} / OP{operation_no}"
-                )
+                f"Production Order already exists: {work_order_no} / OP{operation_no}"
             )
 
-        production_order = ProductionOrder(
-            **normalized
-        )
+        production_order = ProductionOrder(**normalized)
 
         self.log_info(
-            (
-                "Create Production Order: "
-                f"{work_order_no} / OP{operation_no}"
-            )
+            f"Create Production Order: {work_order_no} / OP{operation_no}"
         )
 
-        return self.repository.add(
-            production_order
-        )
+        return self.repository.add(production_order)
 
     # ==========================================================
     # Update
@@ -173,38 +125,25 @@ class ProductionOrderService(BaseService):
         operation_no,
         data,
     ):
-        production_order = (
-            self.get_production_order(
-                work_order_no,
-                operation_no,
-            )
+        production_order = self.get_production_order(
+            work_order_no,
+            operation_no,
         )
 
         if production_order is None:
             raise NotFoundError(
-                (
-                    "Production Order not found: "
-                    f"{work_order_no} / OP{operation_no}"
-                )
+                f"Production Order not found: {work_order_no} / OP{operation_no}"
             )
 
         normalized = self._normalize_data(
             {
                 **dict(data or {}),
-                "work_order_no": (
-                    production_order
-                    .work_order_no
-                ),
-                "operation_no": (
-                    production_order
-                    .operation_no
-                ),
+                "work_order_no": production_order.work_order_no,
+                "operation_no": production_order.operation_no,
             }
         )
 
-        self._validate_data(
-            normalized
-        )
+        self._validate_data(normalized)
 
         for field_name in (
             "product_code",
@@ -250,10 +189,7 @@ class ProductionOrderService(BaseService):
         )
 
         production_order.machine_code = (
-            self._normalize_code(
-                machine_code
-            )
-            or None
+            self._normalize_code(machine_code) or None
         )
 
         self.repository.update()
@@ -272,10 +208,7 @@ class ProductionOrderService(BaseService):
         )
 
         production_order.employee_code = (
-            self._normalize_code(
-                employee_code
-            )
-            or None
+            self._normalize_code(employee_code) or None
         )
 
         self.repository.update()
@@ -293,12 +226,7 @@ class ProductionOrderService(BaseService):
             operation_no,
         )
 
-        production_order.shift = (
-            self._normalize_upper(
-                shift
-            )
-            or None
-        )
+        production_order.shift = self._normalize_upper(shift) or None
 
         self.repository.update()
 
@@ -330,29 +258,17 @@ class ProductionOrderService(BaseService):
             operation_no,
         )
 
-        if production_order.status != (
-            self.STATUS_RELEASED
-        ):
+        if production_order.status != self.STATUS_RELEASED:
             raise ValueError(
-                (
-                    "Only RELEASED Production Orders "
-                    "can be started."
-                )
+                "Production Order must be RELEASED before starting."
             )
 
-        self._validate_previous_operation_completed(
-            production_order
-        )
+        self._validate_operation_start_sequence(production_order)
 
-        production_order.status = (
-            self.STATUS_IN_PROGRESS
-        )
+        production_order.status = self.STATUS_IN_PROGRESS
 
         production_order.actual_start = (
-            self._normalize_datetime(
-                actual_start
-            )
-            or datetime.now()
+            self._normalize_datetime(actual_start) or datetime.now()
         )
 
         self.repository.update()
@@ -384,115 +300,26 @@ class ProductionOrderService(BaseService):
         )
 
         if completed_qty is not None:
-            production_order.completed_qty = (
-                self._normalize_non_negative_int(
-                    completed_qty,
-                    "Completed Qty",
-                )
+            production_order.completed_qty = self._normalize_non_negative_int(
+                completed_qty,
+                "Completed Qty",
             )
 
         if ng_qty is not None:
-            production_order.ng_qty = (
-                self._normalize_non_negative_int(
-                    ng_qty,
-                    "NG Qty",
-                )
+            production_order.ng_qty = self._normalize_non_negative_int(
+                ng_qty,
+                "NG Qty",
             )
 
-        production_order.status = (
-            self.STATUS_COMPLETED
-        )
+        production_order.status = self.STATUS_COMPLETED
 
         production_order.actual_finish = (
-            self._normalize_datetime(
-                actual_finish
-            )
-            or datetime.now()
+            self._normalize_datetime(actual_finish) or datetime.now()
         )
 
         self.repository.update()
 
         return production_order
-
-    def complete_from_assignment(
-        self,
-        assignment_id,
-        actual_finish=None,
-    ):
-        """
-        Complete a Production Order using finalized Execution results
-        belonging to one completed Production Assignment.
-        """
-        assignment = self._require_assignment(
-            assignment_id
-        )
-
-        if assignment.status != "COMPLETED":
-            raise ValueError(
-                (
-                    "Assignment must be COMPLETED before "
-                    "completing Production Order."
-                )
-            )
-
-        production_order = self._require_order_by_id(
-            assignment.production_order_id
-        )
-
-        executions = (
-            self.execution_service
-            .get_by_assignment_id(
-                assignment.id
-            )
-        )
-
-        if any(
-            execution.status
-            == self.execution_service.STATUS_RUNNING
-            for execution in executions
-        ):
-            raise ValueError(
-                (
-                    "Cannot complete Production Order while "
-                    "Assignment has a RUNNING execution."
-                )
-            )
-
-        totals = (
-            self.execution_service
-            .aggregate_assignment_quantities(
-                assignment.id
-            )
-        )
-
-        if totals["execution_count"] == 0:
-            raise ValueError(
-                (
-                    "Assignment must have at least one "
-                    "STOPPED or COMPLETED execution."
-                )
-            )
-
-        total_qty = (
-            totals["ok_qty"]
-            + totals["ng_qty"]
-        )
-
-        if total_qty > production_order.plan_qty:
-            raise ValueError(
-                (
-                    "Execution OK Qty + NG Qty cannot "
-                    "be greater than Production Order Plan Qty."
-                )
-            )
-
-        return self.complete(
-            production_order.work_order_no,
-            production_order.operation_no,
-            completed_qty=totals["ok_qty"],
-            ng_qty=totals["ng_qty"],
-            actual_finish=actual_finish,
-        )
 
     def cancel(
         self,
@@ -516,10 +343,83 @@ class ProductionOrderService(BaseService):
             operation_no,
         )
 
-        production_order.status = (
-            self._normalize_status(
-                status
+        production_order.status = self._normalize_status(status)
+
+        self.repository.update()
+
+        return production_order
+
+    def complete_from_assignment(
+        self,
+        assignment_id,
+        actual_finish=None,
+    ):
+        """Complete a Production Order from finalized execution results."""
+        try:
+            normalized_assignment_id = int(assignment_id)
+        except (TypeError, ValueError) as error:
+            raise NotFoundError(
+                f"Production Assignment not found: {assignment_id}"
+            ) from error
+
+        assignment = (
+            self.session.query(ProductionAssignment)
+            .filter(ProductionAssignment.id == normalized_assignment_id)
+            .first()
+        )
+
+        if assignment is None:
+            raise NotFoundError(
+                f"Production Assignment not found: {assignment_id}"
             )
+
+        if assignment.status != "COMPLETED":
+            raise ValueError("Assignment must be COMPLETED.")
+
+        execution_service = ProductionExecutionService(session=self.session)
+
+        running = execution_service.repository.get_running_by_assignment_id(
+            assignment.id
+        )
+
+        if running is not None:
+            raise ValueError(
+                "Production Assignment has a RUNNING execution."
+            )
+
+        totals = execution_service.aggregate_assignment_quantities(
+            assignment.id
+        )
+
+        if totals["execution_count"] == 0:
+            raise ValueError(
+                "Production Assignment requires at least one STOPPED or COMPLETED execution."
+            )
+
+        production_order = self.session.get(
+            ProductionOrder,
+            assignment.production_order_id,
+        )
+
+        if production_order is None:
+            raise NotFoundError(
+                f"Production Order not found for Assignment #{assignment.id}."
+            )
+
+        total_result_qty = totals["ok_qty"] + totals["ng_qty"]
+
+        if total_result_qty > production_order.plan_qty:
+            raise ValueError(
+                "Execution OK Qty + NG Qty cannot be greater than Production Order Plan Qty."
+            )
+
+        production_order.completed_qty = totals["ok_qty"]
+        production_order.ng_qty = totals["ng_qty"]
+        production_order.status = self.STATUS_COMPLETED
+        production_order.actual_finish = (
+            self._normalize_datetime(actual_finish)
+            or assignment.actual_finish
+            or datetime.now()
         )
 
         self.repository.update()
@@ -542,18 +442,14 @@ class ProductionOrderService(BaseService):
             operation_no,
         )
 
-        production_order.completed_qty = (
-            self._normalize_non_negative_int(
-                completed_qty,
-                "Completed Qty",
-            )
+        production_order.completed_qty = self._normalize_non_negative_int(
+            completed_qty,
+            "Completed Qty",
         )
 
-        production_order.ng_qty = (
-            self._normalize_non_negative_int(
-                ng_qty,
-                "NG Qty",
-            )
+        production_order.ng_qty = self._normalize_non_negative_int(
+            ng_qty,
+            "NG Qty",
         )
 
         self.repository.update()
@@ -578,123 +474,54 @@ class ProductionOrderService(BaseService):
     # Internal
     # ==========================================================
 
-    def _validate_previous_operation_completed(
+    def _validate_operation_start_sequence(
         self,
         production_order,
     ):
         previous_operation = (
-            self.repository.get_previous_operation(
-                production_order.work_order_no,
-                production_order.operation_no,
+            self.session
+            .query(ProductionOrder)
+            .filter(
+                ProductionOrder.work_order_no
+                == production_order.work_order_no,
+                ProductionOrder.operation_no
+                < production_order.operation_no,
             )
+            .order_by(
+                ProductionOrder.operation_no.desc()
+            )
+            .first()
         )
 
+        # OP đầu tiên
         if previous_operation is None:
             return
 
-        if previous_operation.status != (
-            self.STATUS_COMPLETED
-        ):
-            raise ValueError(
-                (
-                    f"Previous operation OP"
-                    f"{previous_operation.operation_no} "
-                    "must be COMPLETED before starting "
-                    f"OP{production_order.operation_no}."
-                )
+        if previous_operation.status == self.STATUS_COMPLETED:
+            return
+
+        raise ValueError(
+            (
+                f"Previous operation "
+                f"OP{previous_operation.operation_no} "
+                f"must be COMPLETED before "
+                f"starting OP{production_order.operation_no}"
             )
+        )
 
     def _require_order(
         self,
         work_order_no,
         operation_no,
     ):
-        production_order = (
-            self.get_production_order(
-                work_order_no,
-                operation_no,
-            )
+        production_order = self.get_production_order(
+            work_order_no,
+            operation_no,
         )
 
         if production_order is None:
             raise NotFoundError(
-                (
-                    "Production Order not found: "
-                    f"{work_order_no} / OP{operation_no}"
-                )
-            )
-
-        return production_order
-
-    def _require_assignment(
-        self,
-        assignment_id,
-    ):
-        try:
-            normalized_id = int(
-                assignment_id
-            )
-        except (TypeError, ValueError) as error:
-            raise NotFoundError(
-                (
-                    "Production Assignment not found: "
-                    f"{assignment_id}"
-                )
-            ) from error
-
-        assignment = (
-            self.session
-            .query(ProductionAssignment)
-            .filter(
-                ProductionAssignment.id
-                == normalized_id
-            )
-            .first()
-        )
-
-        if assignment is None:
-            raise NotFoundError(
-                (
-                    "Production Assignment not found: "
-                    f"{assignment_id}"
-                )
-            )
-
-        return assignment
-
-
-    def _require_order_by_id(
-        self,
-        production_order_id,
-    ):
-        try:
-            normalized_id = int(
-                production_order_id
-            )
-        except (TypeError, ValueError) as error:
-            raise NotFoundError(
-                (
-                    "Production Order not found: "
-                    f"{production_order_id}"
-                )
-            ) from error
-
-        production_order = (
-            self.session
-            .query(self.repository.model)
-            .filter(
-                self.repository.model.id
-                == normalized_id
-            )
-            .first()
-        )
-
-        if production_order is None:
-            raise NotFoundError(
-                (
-                    "Production Order not found: "
-                    f"{production_order_id}"
-                )
+                f"Production Order not found: {work_order_no} / OP{operation_no}"
             )
 
         return production_order
@@ -705,64 +532,35 @@ class ProductionOrderService(BaseService):
         data,
     ):
         if not data["work_order_no"]:
-            raise ValueError(
-                "Work Order No is required."
-            )
+            raise ValueError("Work Order No is required.")
 
         if not data["product_code"]:
-            raise ValueError(
-                "Product Code is required."
-            )
+            raise ValueError("Product Code is required.")
 
         if data["operation_no"] <= 0:
-            raise ValueError(
-                (
-                    "Operation No must be "
-                    "greater than zero."
-                )
-            )
+            raise ValueError("Operation No must be greater than zero.")
 
         if not data["operation_name"]:
-            raise ValueError(
-                "Operation Name is required."
-            )
+            raise ValueError("Operation Name is required.")
 
         if not data["process_type"]:
-            raise ValueError(
-                "Process Type is required."
-            )
+            raise ValueError("Process Type is required.")
 
         if data["plan_qty"] <= 0:
-            raise ValueError(
-                (
-                    "Plan Qty must be "
-                    "greater than zero."
-                )
-            )
+            raise ValueError("Plan Qty must be greater than zero.")
 
-        if (
-            data["completed_qty"]
-            + data["ng_qty"]
-            > data["plan_qty"]
-        ):
+        if data["completed_qty"] + data["ng_qty"] > data["plan_qty"]:
             raise ValueError(
-                (
-                    "Completed Qty + NG Qty cannot "
-                    "be greater than Plan Qty."
-                )
+                "Completed Qty + NG Qty cannot be greater than Plan Qty."
             )
 
         if (
             data["planned_start"] is not None
             and data["planned_finish"] is not None
-            and data["planned_finish"]
-            < data["planned_start"]
+            and data["planned_finish"] < data["planned_start"]
         ):
             raise ValueError(
-                (
-                    "Planned Finish cannot be "
-                    "before Planned Start."
-                )
+                "Planned Finish cannot be before Planned Start."
             )
 
     @classmethod
@@ -770,175 +568,81 @@ class ProductionOrderService(BaseService):
         cls,
         data,
     ):
-        data = dict(
-            data or {}
-        )
+        data = dict(data or {})
 
         return {
-            "work_order_no": (
-                cls._normalize_code(
-                    data.get(
-                        "work_order_no"
-                    )
-                )
+            "work_order_no": cls._normalize_code(data.get("work_order_no")),
+            "product_code": cls._normalize_code(data.get("product_code")),
+            "operation_no": cls._normalize_operation_no(
+                data.get("operation_no")
             ),
-            "product_code": (
-                cls._normalize_code(
-                    data.get(
-                        "product_code"
-                    )
-                )
+            "operation_name": cls._clean_text(data.get("operation_name")),
+            "process_type": cls._normalize_upper(data.get("process_type")),
+            "machine_type": cls._clean_optional_upper(
+                data.get("machine_type")
             ),
-            "operation_no": (
-                cls._normalize_operation_no(
-                    data.get(
-                        "operation_no"
-                    )
-                )
+            "machine_code": cls._clean_optional_upper(
+                data.get("machine_code")
             ),
-            "operation_name": (
-                cls._clean_text(
-                    data.get(
-                        "operation_name"
-                    )
-                )
+            "employee_code": cls._clean_optional_upper(
+                data.get("employee_code")
             ),
-            "process_type": (
-                cls._normalize_upper(
-                    data.get(
-                        "process_type"
-                    )
-                )
+            "shift": cls._clean_optional_upper(data.get("shift")),
+            "plan_qty": cls._normalize_positive_int(
+                data.get("plan_qty"),
+                "Plan Qty",
             ),
-            "machine_type": (
-                cls._clean_optional_upper(
-                    data.get(
-                        "machine_type"
-                    )
-                )
+            "completed_qty": cls._normalize_non_negative_int(
+                data.get(
+                    "completed_qty",
+                    0,
+                ),
+                "Completed Qty",
             ),
-            "machine_code": (
-                cls._clean_optional_upper(
-                    data.get(
-                        "machine_code"
-                    )
-                )
+            "ng_qty": cls._normalize_non_negative_int(
+                data.get(
+                    "ng_qty",
+                    0,
+                ),
+                "NG Qty",
             ),
-            "employee_code": (
-                cls._clean_optional_upper(
-                    data.get(
-                        "employee_code"
-                    )
-                )
+            "status": cls._normalize_status(data.get("status")),
+            "planned_start": cls._normalize_datetime(
+                data.get("planned_start")
             ),
-            "shift": (
-                cls._clean_optional_upper(
-                    data.get(
-                        "shift"
-                    )
-                )
+            "planned_finish": cls._normalize_datetime(
+                data.get("planned_finish")
             ),
-            "plan_qty": (
-                cls._normalize_positive_int(
-                    data.get(
-                        "plan_qty"
-                    ),
-                    "Plan Qty",
-                )
+            "actual_start": cls._normalize_datetime(data.get("actual_start")),
+            "actual_finish": cls._normalize_datetime(
+                data.get("actual_finish")
             ),
-            "completed_qty": (
-                cls._normalize_non_negative_int(
-                    data.get(
-                        "completed_qty",
-                        0,
-                    ),
-                    "Completed Qty",
-                )
-            ),
-            "ng_qty": (
-                cls._normalize_non_negative_int(
-                    data.get(
-                        "ng_qty",
-                        0,
-                    ),
-                    "NG Qty",
-                )
-            ),
-            "status": (
-                cls._normalize_status(
-                    data.get(
-                        "status"
-                    )
-                )
-            ),
-            "planned_start": (
-                cls._normalize_datetime(
-                    data.get(
-                        "planned_start"
-                    )
-                )
-            ),
-            "planned_finish": (
-                cls._normalize_datetime(
-                    data.get(
-                        "planned_finish"
-                    )
-                )
-            ),
-            "actual_start": (
-                cls._normalize_datetime(
-                    data.get(
-                        "actual_start"
-                    )
-                )
-            ),
-            "actual_finish": (
-                cls._normalize_datetime(
-                    data.get(
-                        "actual_finish"
-                    )
-                )
-            ),
-            "remark": (
-                cls._clean_optional_text(
-                    data.get(
-                        "remark"
-                    )
-                )
-            ),
+            "remark": cls._clean_optional_text(data.get("remark")),
         }
 
     @staticmethod
     def _normalize_code(
         value,
     ):
-        return str(
-            value or ""
-        ).strip().upper()
+        return str(value or "").strip().upper()
 
     @staticmethod
     def _normalize_upper(
         value,
     ):
-        return str(
-            value or ""
-        ).strip().upper()
+        return str(value or "").strip().upper()
 
     @staticmethod
     def _clean_text(
         value,
     ):
-        return str(
-            value or ""
-        ).strip()
+        return str(value or "").strip()
 
     @staticmethod
     def _clean_optional_text(
         value,
     ):
-        text = str(
-            value or ""
-        ).strip()
+        text = str(value or "").strip()
 
         return text or None
 
@@ -946,9 +650,7 @@ class ProductionOrderService(BaseService):
     def _clean_optional_upper(
         value,
     ):
-        text = str(
-            value or ""
-        ).strip().upper()
+        text = str(value or "").strip().upper()
 
         return text or None
 
@@ -956,37 +658,21 @@ class ProductionOrderService(BaseService):
     def _normalize_operation_no(
         value,
     ):
-        text = str(
-            value or ""
-        ).strip().upper()
+        text = str(value or "").strip().upper()
 
-        if text.startswith(
-            "OP"
-        ):
+        if text.startswith("OP"):
             text = text[2:].strip()
 
         try:
-            operation_no = int(
-                float(text)
-            )
+            operation_no = int(float(text))
         except (
             TypeError,
             ValueError,
         ) as error:
-            raise ValueError(
-                (
-                    "Invalid Operation No: "
-                    f"{value}"
-                )
-            ) from error
+            raise ValueError(f"Invalid Operation No: {value}") from error
 
         if operation_no <= 0:
-            raise ValueError(
-                (
-                    "Operation No must be "
-                    "greater than zero."
-                )
-            )
+            raise ValueError("Operation No must be greater than zero.")
 
         return operation_no
 
@@ -996,27 +682,15 @@ class ProductionOrderService(BaseService):
         field_name,
     ):
         try:
-            number = int(
-                float(value)
-            )
+            number = int(float(value))
         except (
             TypeError,
             ValueError,
         ) as error:
-            raise ValueError(
-                (
-                    f"Invalid {field_name}: "
-                    f"{value}"
-                )
-            ) from error
+            raise ValueError(f"Invalid {field_name}: {value}") from error
 
         if number <= 0:
-            raise ValueError(
-                (
-                    f"{field_name} must be "
-                    "greater than zero."
-                )
-            )
+            raise ValueError(f"{field_name} must be greater than zero.")
 
         return number
 
@@ -1026,29 +700,15 @@ class ProductionOrderService(BaseService):
         field_name,
     ):
         try:
-            number = int(
-                float(
-                    value or 0
-                )
-            )
+            number = int(float(value or 0))
         except (
             TypeError,
             ValueError,
         ) as error:
-            raise ValueError(
-                (
-                    f"Invalid {field_name}: "
-                    f"{value}"
-                )
-            ) from error
+            raise ValueError(f"Invalid {field_name}: {value}") from error
 
         if number < 0:
-            raise ValueError(
-                (
-                    f"{field_name} cannot "
-                    "be negative."
-                )
-            )
+            raise ValueError(f"{field_name} cannot be negative.")
 
         return number
 
@@ -1057,18 +717,10 @@ class ProductionOrderService(BaseService):
         cls,
         value,
     ):
-        status = str(
-            value
-            or cls.STATUS_PLANNED
-        ).strip().upper()
+        status = str(value or cls.STATUS_PLANNED).strip().upper()
 
         if status not in cls.VALID_STATUSES:
-            raise ValueError(
-                (
-                    "Invalid Production Order "
-                    f"Status: {status}"
-                )
-            )
+            raise ValueError(f"Invalid Production Order Status: {status}")
 
         return status
 
@@ -1094,9 +746,7 @@ class ProductionOrderService(BaseService):
                 datetime.min.time(),
             )
 
-        text = str(
-            value
-        ).strip()
+        text = str(value).strip()
 
         formats = [
             "%Y-%m-%d %H:%M:%S",
@@ -1116,13 +766,6 @@ class ProductionOrderService(BaseService):
                 continue
 
         try:
-            return datetime.fromisoformat(
-                text
-            )
+            return datetime.fromisoformat(text)
         except ValueError as error:
-            raise ValueError(
-                (
-                    "Invalid datetime value: "
-                    f"{value}"
-                )
-            ) from error
+            raise ValueError(f"Invalid datetime value: {value}") from error

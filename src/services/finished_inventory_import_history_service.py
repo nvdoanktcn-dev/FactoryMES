@@ -18,9 +18,6 @@ from src.services.master_import.import_detail_service import (
 from src.services.master_import.import_log_service import (
     ImportLogService,
 )
-from src.services.finished_inventory_receipt_audit_service import (
-    FinishedInventoryReceiptAuditService,
-)
 
 
 class FinishedInventoryImportHistoryService:
@@ -47,12 +44,6 @@ class FinishedInventoryImportHistoryService:
         self.detail_service = ImportDetailService(
             session=self.session,
             auto_commit=False,
-        )
-        self.receipt_audit_service = (
-            FinishedInventoryReceiptAuditService(
-                session=self.session,
-                inventory_repository=self.inventory_repository,
-            )
         )
 
     @staticmethod
@@ -171,12 +162,7 @@ class FinishedInventoryImportHistoryService:
             )
         )
 
-    def rollback_import(
-        self,
-        log_id,
-        *,
-        username="System",
-    ):
+    def rollback_import(self, log_id):
         log = self.log_repository.get_by_log_id(
             log_id
         )
@@ -254,14 +240,7 @@ class FinishedInventoryImportHistoryService:
 
         try:
             for record in records:
-                old_data = self.snapshot(record)
                 self.inventory_repository.delete(record)
-                self.receipt_audit_service.record_delete(
-                    record,
-                    old_data,
-                    source="ROLLBACK",
-                    username=username,
-                )
 
             message = (
                 "Rollback completed: "

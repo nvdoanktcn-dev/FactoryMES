@@ -230,12 +230,15 @@ class TestProductionOrderCompletionFromAssignment(
             ),
         )
 
-        self.assignment_service.complete(
-            self.assignment.id,
-            actual_finish=datetime(
-                2026, 8, 23, 9, 0
-            ),
+        # Arrange an intentionally inconsistent persisted state so this
+        # test isolates ProductionOrderService validation. The normal
+        # ProductionAssignmentService.complete() workflow correctly rejects
+        # completion while an execution is RUNNING.
+        self.assignment.status = "COMPLETED"
+        self.assignment.actual_finish = datetime(
+            2026, 8, 23, 9, 0
         )
+        self.session.flush()
 
         with self.assertRaisesRegex(
             ValueError,
@@ -304,12 +307,14 @@ class TestProductionOrderCompletionFromAssignment(
     def test_rejects_assignment_without_results(
         self,
     ):
-        self.assignment_service.complete(
-            self.assignment.id,
-            actual_finish=datetime(
-                2026, 8, 25, 9, 0
-            ),
+        # Arrange a COMPLETED assignment without finalized execution
+        # results to test ProductionOrderService in isolation. The normal
+        # assignment workflow prevents this invalid state.
+        self.assignment.status = "COMPLETED"
+        self.assignment.actual_finish = datetime(
+            2026, 8, 25, 9, 0
         )
+        self.session.flush()
 
         with self.assertRaisesRegex(
             ValueError,

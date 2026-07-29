@@ -43,6 +43,8 @@ from src.models.cnc_machine import CNCMachine
 from src.models.cnc_production_log import CNCProductionLog
 from src.models.robot import Robot
 from src.models.robot_operation_log import RobotOperationLog
+from src.models.machine_status_log import MachineStatusLog
+from src.models.alarm import Alarm
 
 __all__ = [
     "User",
@@ -81,4 +83,6 @@ __all__ = [
     "CNCProductionLog",
     "Robot",
     "RobotOperationLog",
+     "MachineStatusLog",
+    "Alarm",
 ]
