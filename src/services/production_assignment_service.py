@@ -27,6 +27,9 @@ from src.services.resource_conflict_service import (
     ResourceConflictService,
 )
 from src.services.base_service import SessionOwnedService
+from src.repository.production_execution_repository import (
+    ProductionExecutionRepository,
+)
 
 
 class ProductionAssignmentService(
@@ -72,6 +75,11 @@ class ProductionAssignmentService(
         self.history_service = ProductionAssignmentHistoryService(self.session)
 
         self.conflict_service = ResourceConflictService(self.session)
+        self.execution_repository = (
+            ProductionExecutionRepository(
+                self.session
+            )
+        )
 
     # ==========================================================
     # Query
@@ -328,6 +336,41 @@ class ProductionAssignmentService(
         )
 
         return assignment
+
+    def _validate_completion_executions(
+        self,
+        assignment,
+    ):
+        executions = (
+            self.execution_repository
+            .get_by_assignment_id(
+                assignment.id
+            )
+        )
+
+        if any(
+            execution.status == "RUNNING"
+            for execution in executions
+        ):
+            raise ValueError(
+                "Production Assignment cannot be completed while an Execution is RUNNING."
+            )
+
+        finalized = [
+            execution
+            for execution in executions
+            if execution.status in {
+                "STOPPED",
+                "COMPLETED",
+            }
+        ]
+
+        if not finalized:
+            raise ValueError(
+                "Production Assignment requires at least one finalized Execution."
+            )
+
+        return finalized
 
     # ==========================================================
     # Domain behaviour
@@ -661,6 +704,10 @@ class ProductionAssignmentService(
                 "Actual Finish cannot be before Actual Start."
             )
 
+        self._validate_completion_executions(
+            assignment
+        )
+        
         assignment.status = (
             self.STATUS_COMPLETED
         )

@@ -9,6 +9,10 @@ from src.framework.validator import BaseValidator
 from src.models.stock_out import StockOut
 from src.repository.stock_out_repository import StockOutRepository
 from src.services.base_service import SessionOwnedService
+from src.services.item_catalog_lookup import (
+    normalize_item_type,
+    validate_item_reference,
+)
 
 
 class StockOutService(SessionOwnedService):
@@ -71,13 +75,36 @@ class StockOutService(SessionOwnedService):
 
         self._validate(normalized)
 
-        record = StockOut(**normalized)
+        item_type = normalized.pop(
+            "item_type",
+            None,
+        )
+
+        validate_item_reference(
+            self.session,
+            item_type,
+            normalized["item_code"],
+        )
+
+        record = StockOut(
+            **normalized
+        )
 
         self.log_info(
             f"Create StockOut: {normalized['item_code']}"
         )
 
-        return self.repository.add(record)
+        try:
+            self.repository.add(record)
+            self.session.flush()
+            self.session.commit()
+            self.session.refresh(record)
+
+            return record
+
+        except Exception:
+            self.session.rollback()
+            raise
 
     # ==========================================================
     # Update
@@ -95,12 +122,25 @@ class StockOutService(SessionOwnedService):
 
         self._validate(normalized)
 
+        item_type = normalized.pop(
+            "item_type",
+            None,
+        )
+
+        validate_item_reference(
+            self.session,
+            item_type,
+            normalized["item_code"],
+        )
+
         for field, value in normalized.items():
             setattr(record, field, value)
 
         self.log_info(f"Update StockOut: {stock_out_id}")
 
         self.repository.update()
+
+        self.session.commit()
 
         return record
 
@@ -118,7 +158,11 @@ class StockOutService(SessionOwnedService):
 
         self.log_warning(f"Delete StockOut: {stock_out_id}")
 
-        return self.repository.delete(record)
+        deleted = self.repository.delete(record)
+
+        self.session.commit()
+
+        return deleted
 
     # ==========================================================
     # Validation and normalization
@@ -143,6 +187,9 @@ class StockOutService(SessionOwnedService):
         return {
             "stock_out_date": cls._parse_date(
                 data.get("stock_out_date")
+            ),
+            "item_type": normalize_item_type(
+                data.get("item_type")
             ),
             "item_code": str(
                 data.get("item_code") or ""

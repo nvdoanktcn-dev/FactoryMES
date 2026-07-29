@@ -12,6 +12,9 @@ from tests.factories.employee_factory import (
 from tests.factories.machine_factory import (
     MachineFactory,
 )
+from tests.factories.production_execution_factory import (
+    ProductionExecutionFactory,
+)
 
 class TestProductionAssignmentService(DatabaseTestCase):
 
@@ -329,6 +332,11 @@ class TestProductionAssignmentService(DatabaseTestCase):
             actual_start="2026-07-20 08:00",
         )
 
+        ProductionExecutionFactory.create_stopped(
+            self.session,
+            assignment,
+        )
+
         result = self.service.complete(
             assignment.id,
             actual_finish="2026-07-20 12:00",
@@ -358,6 +366,10 @@ class TestProductionAssignmentService(DatabaseTestCase):
 
         self.service.start(
             assignment.id
+        )
+        ProductionExecutionFactory.create_stopped(
+            self.session,
+            assignment,
         )
 
         self.service.hold(

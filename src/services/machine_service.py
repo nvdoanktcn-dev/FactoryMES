@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-import re
-
+from src.database.session import get_session
+from src.framework.base_service import BaseService
 from src.framework.exception import DuplicateError, NotFoundError
 from src.framework.validator import BaseValidator
 from src.models.machine import Machine
+from src.models.machine_status_log import MachineStatusLog
 from src.repository.machine_repository import MachineRepository
+from src.repository.machine_status_log_repository import (
+    MachineStatusLogRepository,
+)
 from sqlalchemy.orm import Session
 
 from src.services.base_service import SessionOwnedService
+import re
 
 
 class MachineService(SessionOwnedService):
@@ -30,6 +35,9 @@ class MachineService(SessionOwnedService):
 
             self._owns_session = False
             self.repository = repository
+            self.status_log_repository = (
+                MachineStatusLogRepository(self.session)
+            )
             return
 
         super().__init__(
@@ -38,6 +46,19 @@ class MachineService(SessionOwnedService):
 
         self.repository = MachineRepository(
             self.require_session()
+        )
+
+        # Giai đoạn 7 (MES Real-time, 2026-07-28): mỗi lần
+        # `machine.status` thay đổi (tạo mới, sửa qua form CRUD, xoá
+        # mềm, hoặc đổi nhanh từ Live Dashboard), một dòng
+        # `MachineStatusLog` được ghi tự động - đây là cách duy nhất
+        # trạng thái được ghi log, giống hệt cách
+        # `ProductionAssignmentService` tự ghi
+        # `ProductionAssignmentHistory` mỗi khi trạng thái Assignment
+        # đổi. Nhờ vậy MỌI máy (không chỉ máy vừa được đổi trạng thái
+        # qua Live Dashboard) đều có lịch sử đầy đủ kể từ lúc tạo.
+        self.status_log_repository = (
+            MachineStatusLogRepository(self.session)
         )
 
     def get_all_machines(self):
@@ -73,12 +94,15 @@ class MachineService(SessionOwnedService):
 
     def create_machine(self, data):
         normalized = self._normalize_data(data)
+
         machine_code = normalized["machine_code"]
         machine_name = normalized["machine_name"]
+        machine_type = normalized["machine_type"]
+
         self._validate_machine(
             machine_code,
             machine_name,
-            normalized["machine_type"],
+            machine_type,
         )
 
         if self.repository.get_by_code(machine_code) is not None:
@@ -88,9 +112,26 @@ class MachineService(SessionOwnedService):
 
         machine = Machine(**normalized)
         self.log_info(f"Create Machine: {machine_code}")
-        return self.repository.add(machine)
+        machine = self.repository.add(machine)
 
-    def update_machine(self, machine_code, data):
+        self._log_status_change(
+            machine,
+            old_status=None,
+            new_status=machine.status,
+            source="MACHINE_CREATED",
+        )
+
+        return machine
+
+    def update_machine(
+        self,
+        machine_code,
+        data,
+        *,
+        status_source="MACHINE_CRUD",
+        status_changed_by=None,
+        status_remark=None,
+    ):
         code = self._normalize_code(machine_code)
         machine = self.repository.get_by_code(code)
 
@@ -98,6 +139,8 @@ class MachineService(SessionOwnedService):
             raise NotFoundError(
                 f"Machine not found: {code}"
             )
+
+        old_status = machine.status
 
         normalized = self._normalize_data(
             {**dict(data or {}), "machine_code": code}
@@ -119,6 +162,16 @@ class MachineService(SessionOwnedService):
 
         self.log_info(f"Update Machine: {code}")
         self.repository.update()
+
+        self._log_status_change(
+            machine,
+            old_status=old_status,
+            new_status=machine.status,
+            source=status_source,
+            changed_by=status_changed_by,
+            remark=status_remark,
+        )
+
         return machine
 
     def save_machine(self, data):
@@ -140,22 +193,6 @@ class MachineService(SessionOwnedService):
         )
 
     def delete_machine(self, machine_code):
-        return self.set_machine_status(
-            machine_code,
-            "INACTIVE",
-        )
-
-    def activate_machine(self, machine_code):
-        return self.set_machine_status(
-            machine_code,
-            "RUNNING",
-        )
-
-    def set_machine_status(
-        self,
-        machine_code,
-        status,
-    ):
         code = self._normalize_code(machine_code)
         machine = self.repository.get_by_code(code)
 
@@ -164,131 +201,141 @@ class MachineService(SessionOwnedService):
                 f"Machine not found: {code}"
             )
 
-        normalized_status = self._normalize_status(
-            status
-        )
-        machine.status = normalized_status
-
-        self.log_info(
-            (
-                f"Set Machine Status: "
-                f"{code} -> {normalized_status}"
-            )
-        )
+        old_status = machine.status
+        machine.status = "INACTIVE"
+        self.log_warning(f"Inactive Machine: {code}")
         self.repository.update()
+
+        self._log_status_change(
+            machine,
+            old_status=old_status,
+            new_status="INACTIVE",
+            source="MACHINE_DELETE",
+        )
+
         return machine
 
-    def commit_changes(self) -> None:
-        self.require_session().commit()
+    def _log_status_change(
+        self,
+        machine,
+        *,
+        old_status,
+        new_status,
+        source="MACHINE_CRUD",
+        changed_by=None,
+        remark=None,
+    ):
+        """
+        Ghi 1 dòng MachineStatusLog nếu trạng thái thực sự thay đổi.
+        Không làm gì (và không lỗi) nếu status_log_repository chưa
+        được khởi tạo, để không phá vỡ bất kỳ chỗ nào khác đang tự
+        tạo instance MachineService theo cách khác trong tương lai.
+        """
+        if old_status == new_status:
+            return
 
-    def rollback_changes(self) -> None:
-        session = self.require_session()
+        repository = getattr(
+            self,
+            "status_log_repository",
+            None,
+        )
 
-        if session.is_active:
-            session.rollback()
+        if repository is None:
+            return
+
+        repository.add(
+            MachineStatusLog(
+                machine_id=machine.id,
+                machine_code=machine.machine_code,
+                old_status=old_status,
+                new_status=new_status,
+                source=source,
+                changed_by=changed_by,
+                remark=remark,
+            )
+        )
 
     @staticmethod
     def _validate_machine(
         machine_code,
         machine_name,
-        machine_type=None,
+        machine_type,
     ):
-        BaseValidator.required(machine_code, "Machine Code")
-        BaseValidator.required(machine_name, "Machine Name")
+        BaseValidator.required(
+            machine_code,
+            "Machine Code",
+        )
+
+        BaseValidator.required(
+            machine_name,
+            "Machine Name",
+        )
+
+        BaseValidator.required(
+            machine_type,
+            "Machine Type",
+        )
+
         BaseValidator.max_length(
             machine_code,
             "Machine Code",
             30,
         )
+
         BaseValidator.max_length(
             machine_name,
             "Machine Name",
             100,
         )
 
+        normalized_code = str(
+            machine_code
+        ).strip().upper()
+
         normalized_type = str(
-            machine_type or ""
+            machine_type
         ).strip().upper()
 
         if normalized_type == "CNC":
-            if not machine_code.startswith("BL"):
-                raise ValueError(
-                    "CNC Machine Code must start with BL."
-                )
-
-        elif normalized_type == "ROBOT":
-            if not MachineService._is_robot_code(
-                machine_code
+            if not re.fullmatch(
+                r"BL[A-Z0-9]+",
+                normalized_code,
             ):
                 raise ValueError(
-                    (
-                        "ROBOT Machine Code must be "
-                        "BR01-BR11, ASK followed by digits, "
-                        "or start with BRASK."
-                    )
+                    "Invalid CNC Machine Code."
                 )
 
-        if machine_code.startswith("BL"):
-            if normalized_type != "CNC":
-                raise ValueError(
-                    "BL Machine Code requires Machine Type CNC."
-                )
+            return
 
-        elif MachineService._looks_like_robot_code(
-            machine_code
-        ):
-            if normalized_type != "ROBOT":
-                raise ValueError(
-                    (
-                        "BR/ASK/BRASK Machine Code requires "
-                        "Machine Type ROBOT."
-                    )
-                )
+        if normalized_type == "ROBOT":
+            valid_br = re.fullmatch(
+                r"BR(0[1-9]|1[01])",
+                normalized_code,
+            )
 
-            if not MachineService._is_robot_code(
-                machine_code
+            valid_ask = re.fullmatch(
+                r"ASK[A-Z0-9]+",
+                normalized_code,
+            )
+
+            valid_brask = re.fullmatch(
+                r"BRASK[A-Z0-9]+",
+                normalized_code,
+            )
+
+            if not (
+                valid_br
+                or valid_ask
+                or valid_brask
             ):
                 raise ValueError(
-                    (
-                        "Robot code must be BR01-BR11 "
-                        "ASK followed by digits, "
-                        "or start with BRASK."
-                    )
+                    "Invalid ROBOT Machine Code."
                 )
 
-    @staticmethod
-    def _looks_like_robot_code(machine_code):
-        return (
-            machine_code.startswith("BR")
-            or machine_code.startswith("ASK")
-        )
+            return
 
-    @staticmethod
-    def _is_robot_code(machine_code):
-        if (
-            re.fullmatch(
-                r"BRASK[A-Z0-9-]+",
-                machine_code,
-            )
-            is not None
-        ):
-            return True
-
-        br_match = re.fullmatch(
-            r"BR(\d{2})",
-            machine_code,
-        )
-
-        if br_match is not None:
-            number = int(br_match.group(1))
-            return 1 <= number <= 11
-
-        return (
-            re.fullmatch(
-                r"ASK\d+",
-                machine_code,
-            )
-            is not None
+        raise ValueError(
+            "Invalid Machine Type."
         )
 
     @classmethod
@@ -301,7 +348,7 @@ class MachineService(SessionOwnedService):
             "machine_name": cls._clean_text(
                 data.get("machine_name")
             ),
-            "machine_type": cls._normalize_machine_type(
+            "machine_type": cls._clean_optional_text(
                 data.get("machine_type")
             ),
             "line": cls._clean_optional_text(
@@ -338,30 +385,6 @@ class MachineService(SessionOwnedService):
         return text or None
 
     @staticmethod
-    def _normalize_machine_type(value):
-        machine_type = str(
-            value or ""
-        ).strip().upper()
-
-        if not machine_type:
-            return None
-
-        allowed = {
-            "CNC",
-            "ROBOT",
-            "MANUAL",
-            "INSPECTION",
-            "OTHER",
-        }
-
-        if machine_type not in allowed:
-            raise ValueError(
-                f"Invalid Machine Type: {machine_type}"
-            )
-
-        return machine_type
-
-    @staticmethod
     def _normalize_status(value):
         status = str(
             value or "RUNNING"
@@ -369,11 +392,9 @@ class MachineService(SessionOwnedService):
 
         mapping = {
             "ACTIVE": "RUNNING",
-            "READY": "RUNNING",
             "RUNNING": "RUNNING",
 
             "TOPPED": "STOPPED",
-            "STOPPED": "STOPPED",
 
             "MAINTENANCE": "MAINTENANCE",
             "MAINSTOP": "STOPPED",
@@ -381,15 +402,27 @@ class MachineService(SessionOwnedService):
             "PM": "MAINTENANCE",
 
             "INACTIVE": "INACTIVE",
-            "IDLE": "INACTIVE",
+
+            "IDLE": "IDLE",
+            "ALARM": "ALARM",
         }
 
+        # Giai đoạn 7 (MES Real-time, 2026-07-28): "IDLE" trước đây bị
+        # gộp nhầm vào "INACTIVE" (máy đã ngừng sử dụng/xoá mềm qua
+        # delete_machine()) trong bảng ánh xạ trên - không gây lỗi
+        # thực tế vì form Machine CRUD chưa từng có lựa chọn "IDLE",
+        # nhưng sẽ sai hoàn toàn một khi IDLE trở thành trạng thái
+        # thật (máy đang bật nhưng không chạy việc gì, khác hẳn máy đã
+        # bị vô hiệu hoá). Đã tách "IDLE"/"ALARM" thành 2 giá trị hợp
+        # lệ riêng biệt bên dưới.
         status = mapping.get(status, status)
 
         allowed = {
             "RUNNING",
+            "IDLE",
             "STOPPED",
             "MAINTENANCE",
+            "ALARM",
             "INACTIVE",
         }
 
